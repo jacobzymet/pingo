@@ -25,7 +25,84 @@ addresses and inbound ICMP echo requests allowed from the other peer.
 
 IPv6, NAT traversal, and multiple peers are unsupported.
 
-## Install
+## Desktop app
+
+Pingo now has a local HTML/CSS/JavaScript interface in a native desktop window.
+The existing CLI and full packet hex dumps remain available. The desktop includes
+saved connections, native file pickers, shared-key generation, matching peer setup
+export, messages, resumable file progress, VPN controls, setup checks, and recovery.
+
+On Windows, open **`Start Pingo.cmd`** from this checkout. It uses the portable
+build if present; otherwise it sets up the Python environment and desktop dependencies.
+The first source launch needs Python 3.11+ and Internet access for installation.
+For an existing environment:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[gui]"
+.\.venv\Scripts\python.exe -m pingo gui
+```
+
+The Windows desktop uses Microsoft Edge WebView2 Runtime; install the official
+[WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+if it is missing. The interface and fonts are local; no website, CDN, or browser
+tab is needed. The native bridge exposes fixed actions, not arbitrary commands.
+
+1. Choose **Add a connection**. Enter the other computer's reachable IPv4 address.
+   Enter this computer's IPv4 too if you want to export matching peer setup;
+   detected addresses are suggestions, not reachability guarantees.
+2. Generate a key on **one computer only**, or select your existing shared key.
+   **Set up other computer** writes a new folder containing `peer.toml`, `peer.key`,
+   and instructions. Transfer that folder privately through a separate trusted
+   channel, then choose **Import** on the other computer.
+3. Run **Settings → Run setup check**. Allow inbound ICMP echo requests
+   from each peer on both computers. Local checks do not prove the peer is reachable.
+4. Use **Reopen as Administrator** for network actions on Windows. Open the **Receive**
+   tab and start receiving on one computer, then use **Message** or **File** on the other. Stop before switching
+   tasks. The desktop enforces one activity per window; run only one Pingo instance
+   per endpoint/key, including CLI processes.
+
+VPN has its own screen with client/responder roles, tunnel addresses, a Wintun
+file picker on Windows, and expandable route, DNS, source-allowlist, and kill-switch
+settings. Default IPv4 routing still requires an explicitly configured exit peer;
+see the VPN instructions below. Ordinary stop/window close waits for cleanup.
+Failures may retain protection; **Settings → Restore connectivity after a VPN failure → Remove retained protection**
+restores ordinary traffic. Hard termination has the same limitations as the CLI.
+
+Use **Ctrl+Enter** to send a message. Drafts and selected files remain when switching
+action tabs. The message composer shows its UTF-8 byte count and prevents oversized sends.
+
+Hex is displayed by default. The packet panel can collapse. Pausing freezes the displayed
+packets for filtering and hex inspection; it does not pause networking or packet
+collection. The interface displays the latest 120 packets; trace exports include
+up to 2,000 recent packet/activity records. Export is a bounded snapshot, not an
+unlimited capture. Received messages are rendered as text. Keys never appear in
+the trace or JavaScript bridge responses; key **paths** are used for file selection.
+
+Connections and generated keys are stored in `%LOCALAPPDATA%\Pingo` on Windows,
+or `$XDG_DATA_HOME/pingo` (default `~/.local/share/pingo`) on Linux. Pingo restricts
+its storage directory to the current user, SYSTEM and Administrators on Windows,
+and mode 0700 on Linux. Protect imported/external keys and custom receive folders
+yourself. `pingo gui --data-dir PATH` can select a different storage directory.
+On Linux, install a pywebview GTK or Qt backend, for example
+`pip install -e '.[gui]' 'pywebview[qt]'`, then launch from a graphical session
+with the permissions needed for raw ICMP/TUN.
+
+### Portable Windows build
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-desktop.ps1
+```
+
+Distribute **`dist/Pingo-Windows.zip`**, or the whole `dist/Pingo` folder. Unzip it
+and open `Pingo.exe`; recipients do not
+need Python. `Pingo-worker.exe` is a companion process and should remain beside
+the app. WebView2 Runtime and, for Windows VPN, the signed official Wintun DLL
+are separate prerequisites. The build is unsigned. The script bundles the app,
+HTML assets, Python runtime and dependencies using PyInstaller.
+Use a maintained 64-bit Python environment for release builds, such as Python
+3.13.16 or 3.14.8. Pass `-Python PATH` to the build script to select its interpreter.
+
+## Install CLI
 
 Python 3.11 or newer. From the repository on each endpoint:
 
@@ -128,7 +205,9 @@ accepts 60–604800 seconds). Expired partials are removed while the listener ru
 completed files remain. Pending files reserve directory quota. Keep the directory
 private: checkpoints and partials contain plaintext. `file --no-resume` uses the
 legacy format and cleans partials on session change or exit. Upgrade both peers
-to version 0.2 or later for resumable transfers and congestion-aware VPNs.
+to version 0.3 or later for the forward-secret handshake, resumable transfers,
+and congestion-aware VPNs. Version 0.3 uses wire protocol v2 and does not connect
+to older peers. Existing random shared keys and configurations can be reused.
 
 Defaults: messages up to 60,000 UTF-8 bytes, files up to 64 MiB, receive directory
 up to 256 MiB and 1,023 entries. `max_file_bytes` and `max_receive_bytes` adjust
@@ -303,13 +382,15 @@ change routing concurrently while a VPN session runs.
 
 ## Security and protocol
 
-* Random 32-byte PSK, HMAC-SHA256 authenticated role/mode handshake, fresh 32-byte
-  challenges from both peers, HKDF-SHA256 with separate directional keys, and
-  `cryptography` ChaCha20-Poly1305 AEAD. No home-grown cipher or MAC algorithm.
-  The protocol does not provide forward secrecy. Compromise of the PSK exposes recorded sessions and permits impersonation.
+* Random 32-byte PSK and the Noise NNpsk0 X25519/ChaChaPoly/SHA256 handshake,
+  with fresh ephemeral keys on both peers. The mode and protocol version are bound
+  to the transcript. HKDF derives separate directional datagram keys; packets retain
+  ChaCha20-Poly1305 with full tags. Later PSK disclosure alone cannot decrypt recorded
+  completed sessions when ephemeral/session secrets remain unavailable. Disclosure
+  still permits future impersonation; earlier version 0.2 traffic has no forward secrecy.
 * A 64-bit packet counter forms a 96-bit nonce with a fixed prefix, under distinct
   session/direction keys. Retries consume new counters. Sessions expire after
-  2^32 sent packets and are never saved/restored. Restarts require fresh challenges.
+  2^32 sent packets and are never saved/restored. Restarts require fresh ephemeral keys.
 * Magic/version, session ID, and counter are AEAD associated data. An authenticated
   1,024-packet replay window accepts limited reordering, rejects duplicates, and
   changes only after tag verification. Confirmation is required before adopting
@@ -326,13 +407,20 @@ change routing concurrently while a VPN session runs.
   remote kernel may echo ciphertext back; this adds traffic, not a second data
   delivery. No key logging, remote execution, or remote-specified destination paths.
 
-Source references: [cryptography AEAD](https://cryptography.io/en/latest/hazmat/primitives/aead/),
+Source references: [Noise](https://noiseprotocol.org/noise.html),
+[cryptography AEAD](https://cryptography.io/en/latest/hazmat/primitives/aead/),
 [HKDF](https://cryptography.io/en/latest/hazmat/primitives/key-derivation-functions/),
 [Python sockets](https://docs.python.org/3/library/socket.html),
 [Microsoft raw sockets](https://learn.microsoft.com/en-us/windows/win32/winsock/tcp-ip-raw-sockets-2),
 and [Linux TUN](https://docs.kernel.org/networking/tuntap.html).
 
 ## Develop and verify
+
+The [measurement guide](docs/measurement.md) covers ordinary ICMP/Pingo PCAP
+comparisons, held-out detection and false-positive rates, bandwidth, echo RTT, and
+optional offline distribution encoding, padding, and timing experiments. Install
+`.[research]` and use `pingo-measure` with a capture manifest. These experiments do
+not change the live transport; real captures are required to assess their value.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q

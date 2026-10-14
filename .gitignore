@@ -22,3 +22,9 @@ output/
 /.codex/
 /.agents/
 AGENTS.md
+*.pcap
+*.pcapng
+/captures/
+/measurement-output/
+Pingo-pair-*/
+pingo-trace*.jsonl

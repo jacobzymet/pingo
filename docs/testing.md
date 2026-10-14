@@ -31,3 +31,39 @@ network mode or mount a writable host directory.
 
 The integration suite covers ICMP messages and files, durable transfer resumption,
 TUN delivery, route cleanup, reconnection, crash protection, and targeted unlock.
+
+## Desktop tests
+
+Install the `gui` extra to run desktop tests that use pywebview:
+
+```sh
+python -m pip install -e '.[dev,gui]'
+python -m pytest -q tests/test_desktop.py
+```
+
+The Noise conformance test uses a published NNpsk0 known-answer vector. Session
+tests also exercise handshake loss, tampering, mode/version binding, confirmation,
+replay, replacement, and later PSK disclosure.
+
+Offline measurement and experiment tests need the optional `research` extra:
+
+```sh
+python -m pip install -e '.[dev,research]'
+python -m pytest -q tests/test_noise_vectors.py tests/test_measure.py
+```
+
+The Windows native smoke test opens a hidden WebView2 window and exercises the
+JavaScript/Python bridge. It creates test keys and settings under the result file's
+directory and does not start network actions:
+
+```powershell
+.\.venv\Scripts\python.exe -m pingo.desktop --smoke-test output/playwright/native-smoke.json
+dist/Pingo/Pingo.exe --smoke-test output/playwright/packaged-smoke.json
+```
+
+`scripts/desktop-ui-check.js` exercises the interface with a simulated desktop
+bridge. Serve the embedded static HTML on localhost port 8766, then run:
+
+```sh
+playwright-cli -s=pingo run-code --filename scripts/desktop-ui-check.js
+```

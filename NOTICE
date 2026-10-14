@@ -3,3 +3,11 @@ Copyright 2026 Jacob Zymet
 
 Licensed under the Apache License, Version 2.0.
 See LICENSE for the full terms.
+
+Pingo uses noiseprotocol 0.3.1, Copyright (c) 2017 Piotr Lizończyk,
+licensed under the MIT License. See licenses/noiseprotocol-LICENSE.txt.
+
+The Noise conformance fixture is from Cacophony's public-domain test vectors.
+
+The Windows desktop package also includes third-party software and Python.
+Their copyright and license notices are included in the package's licenses directory.

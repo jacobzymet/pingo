@@ -11,11 +11,11 @@ from pathlib import Path
 
 from . import __version__
 from .config import Config, generate_key
-from .direct import send_file, send_message
+from .direct import CHUNK, END, send_file, send_message
 from .icmp import RawICMP
 from .reconnect import Connector
 from .reliable import Reliable
-from .resume import ResumableReceiver, send_resumable
+from .resume import RESUME, ResumableReceiver, send_resumable
 from .traffic import TracedCarrier, Traffic
 from .transport import Endpoint
 from .vpn import VPN, Routes, Tun
@@ -25,14 +25,22 @@ def parser():
     result = argparse.ArgumentParser(prog="pingo", description="Experimental encrypted ICMP tunnel")
     result.add_argument("--version", action="version", version=f"Pingo {__version__}")
     commands = result.add_subparsers(dest="command", required=True)
+    gui = commands.add_parser("gui", help="open the desktop app (install the gui extra)")
+    gui.add_argument("--data-dir", type=Path, help="local desktop connection storage directory")
     keygen = commands.add_parser(
         "keygen", help="create a private 32-byte shared key (no overwrite)"
     )
     keygen.add_argument("path", type=Path)
     unlock = commands.add_parser("unlock", help="remove Pingo's retained crash kill switch")
     unlock.add_argument("--table", help="Linux nft table identity printed at startup")
-    for name in ("listen", "message", "file", "vpn"):
-        command = commands.add_parser(name)
+    descriptions = {
+        "listen": "receive messages and files from your peer",
+        "message": "send a text message to your peer",
+        "file": "send a file, resuming an interrupted transfer",
+        "vpn": "connect an IPv4 VPN or wait as its responder",
+    }
+    for name, description in descriptions.items():
+        command = commands.add_parser(name, help=description, description=description)
         command.add_argument("--config", type=Path, required=True)
         command.add_argument(
             "--traffic",
@@ -98,14 +106,15 @@ def parser():
     return result
 
 
-def run_listener(factory, config, args, stop):
+def run_listener(factory, config, args, stop, events=None):
+    events = events or (lambda *_args, **_kwargs: None)
     if not 60 <= args.resume_retention <= 604800:
         raise ValueError("resume retention must be 60..604800 seconds")
     receiver = ResumableReceiver(
         config.receive_dir,
         config.max_file_bytes,
         config.max_receive_bytes,
-        on_message=lambda text: print(json.dumps({"message": text}), flush=True),
+        on_message=lambda text: events("message", text=text),
         retention_seconds=args.resume_retention,
     )
     try:
@@ -116,7 +125,33 @@ def run_listener(factory, config, args, stop):
                         endpoint, attempts=config.attempts, timeout=config.retry_seconds
                     )
                     receiver.attach(channel)
+
+                    def handle(data):
+                        state = receiver.active
+                        result = receiver.handle(data)
+                        if data and data[0] == END and state:
+                            events("received_file", name=result.decode("ascii"), size=state["size"])
+                            events(
+                                "progress",
+                                done=state["size"],
+                                total=state["size"],
+                                phase="verified",
+                                name=state["name"],
+                            )
+                        elif data and data[0] in (CHUNK, RESUME) and receiver.active:
+                            current = receiver.active
+                            events(
+                                "progress",
+                                done=current["offset"],
+                                total=current["size"],
+                                phase="receiving",
+                                name=current["name"],
+                            )
+                        return result
+
+                    channel.handler = handle
                     endpoint.start(responder=True)
+                    events("state", state="listening")
                     logging.info(
                         "Listening for %s; files go to %s", config.peer, config.receive_dir
                     )
@@ -134,7 +169,8 @@ def run_listener(factory, config, args, stop):
         receiver.suspend()
 
 
-def run_vpn(factory, config, args, stop, traffic):
+def run_vpn(factory, config, args, stop, traffic, events=None):
+    events = events or (lambda *_args, **_kwargs: None)
     from .network import LinuxDNS, LinuxKillSwitch, WindowsDNS
     from .windows import WindowsRoutes, Wintun
 
@@ -195,12 +231,14 @@ def run_vpn(factory, config, args, stop, traffic):
                     if args.listen:
                         endpoint.start(responder=True)
                         logging.info("Waiting for authenticated VPN peer")
+                        events("state", state="listening")
                         while not stop.is_set() and not endpoint.ready.wait(0.2):
                             endpoint.check()
                         if stop.is_set():
                             return
                     else:
-                        endpoint.connect(config.attempts, config.retry_seconds)
+                        events("state", state="connecting")
+                        endpoint.connect(config.attempts, config.retry_seconds, stop=stop)
                         endpoint.start()
                     if not configured:
                         stack.enter_context(routes)
@@ -208,6 +246,7 @@ def run_vpn(factory, config, args, stop, traffic):
                             stack.enter_context(dns_class(tun.name, dns))
                         configured = True
                     logging.info("VPN ready on %s (%s); IPv4 MTU 1000", tun.name, address)
+                    events("state", state="connected")
                     vpn.run(stop)
                     return
             except (ConnectionError, TimeoutError):
@@ -215,14 +254,31 @@ def run_vpn(factory, config, args, stop, traffic):
                     raise
                 delay = min(0.5 * 2 ** min(failure, 5), 10)
                 logging.warning("VPN peer unavailable; reconnecting in %.1fs", delay)
+                events("state", state="reconnecting", delay=delay, attempt=failure + 1)
                 if stop.wait(delay):
                     return
+            except InterruptedError:
+                if stop.is_set():
+                    return
+                raise
 
 
-def main(argv=None):
+def main(argv=None, events=None, stop=None):
     args = parser().parse_args(argv)
+    if args.command == "gui":
+        from .desktop import main as desktop_main
+
+        return desktop_main(["--data-dir", str(args.data_dir)] if args.data_dir else [])
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-    stop = threading.Event()
+    stop = stop if stop is not None else threading.Event()
+    desktop_events = events
+
+    def emit(kind, **fields):
+        if desktop_events:
+            desktop_events(kind, **fields)
+        elif kind == "message":
+            print(json.dumps({"message": fields["text"]}), flush=True)
+
     previous = {}
 
     def halt(*_):
@@ -264,25 +320,38 @@ def main(argv=None):
             )
 
         if args.command == "vpn":
-            run_vpn(factory, config, args, stop, traffic)
+            run_vpn(factory, config, args, stop, traffic, emit)
         elif args.command == "listen":
-            run_listener(factory, config, args, stop)
+            run_listener(factory, config, args, stop, emit)
         else:
             with Connector(
-                factory, stop, config.attempts, config.retry_seconds, args.reconnects
+                factory, stop, config.attempts, config.retry_seconds, args.reconnects, emit
             ) as channel:
                 if args.command == "message":
-                    print(send_message(channel, args.text), flush=True)
+                    result = send_message(channel, args.text)
+                    emit("sent_message", text=args.text, result=result)
+                    if not desktop_events:
+                        print(result, flush=True)
                 else:
                     if args.no_resume:
                         name = send_file(channel, args.path, config.max_file_bytes)
                     else:
                         name = send_resumable(
-                            channel, args.path, config.max_file_bytes, reconnects=args.reconnects
+                            channel,
+                            args.path,
+                            config.max_file_bytes,
+                            reconnects=args.reconnects,
+                            progress=lambda done, total, phase: emit(
+                                "progress", done=done, total=total, phase=phase, name=args.path.name
+                            ),
                         )
-                    print("Verified receiver file: " + name, flush=True)
+                    emit("sent_file", name=name)
+                    if not desktop_events:
+                        print("Verified receiver file: " + name, flush=True)
         return 0
     except KeyboardInterrupt:
+        return 130
+    except InterruptedError:
         return 130
     except subprocess.SubprocessError as exc:
         logging.error("network setup failed: %s", getattr(exc, "stderr", None) or str(exc))

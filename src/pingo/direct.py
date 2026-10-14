@@ -176,7 +176,8 @@ def send_file(channel: Reliable, path: Path, max_file_bytes=64 * 1024**2) -> str
     if not stat.S_ISREG(path.stat().st_mode):
         raise ValueError("file transfer requires a regular file")
     identifier = os.urandom(16)
-    with path.open("rb") as stream:
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+    with os.fdopen(fd, "rb") as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode):
             raise ValueError("file transfer requires a regular file")

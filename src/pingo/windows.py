@@ -4,6 +4,7 @@ import ctypes
 import ipaddress
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -13,9 +14,11 @@ LOG = logging.getLogger(__name__)
 
 
 def powershell(script, payload=None):
+    system = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32"
+    modules = system / "WindowsPowerShell/v1.0/Modules"
     result = subprocess.run(
         [
-            "powershell.exe",
+            str(system / "WindowsPowerShell/v1.0/powershell.exe"),
             "-NoProfile",
             "-NonInteractive",
             "-Command",
@@ -27,6 +30,9 @@ def powershell(script, payload=None):
         text=True,
         check=True,
         timeout=15,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        # PowerShell 7 module paths can break Windows PowerShell's built-in commands.
+        env={**os.environ, "PSModulePath": str(modules)},
     )
     return result.stdout.strip()
 

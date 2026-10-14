@@ -201,7 +201,8 @@ class ResumableReceiver(Receiver):
             self._capacity(size - state["offset"], exclude=identifier)
         else:
             self._capacity(size + 1024)
-        flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        # Windows CRT text mode can remove a trailing 0x1A during open itself.
+        flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
         if not temporary.exists():
             if state["offset"]:
                 raise ValueError("partial receiver file is missing")
@@ -253,12 +254,15 @@ class ResumableReceiver(Receiver):
         return result
 
 
-def send_resumable(channel, path: Path, max_file_bytes=64 * 1024**2, reconnects=10):
-    with path.open("rb") as stream:
+def send_resumable(channel, path: Path, max_file_bytes=64 * 1024**2, reconnects=10, progress=None):
+    progress = progress or (lambda *_: None)
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+    with os.fdopen(fd, "rb") as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or not 0 <= info.st_size <= max_file_bytes:
             raise ValueError("file must be regular and within the configured size limit")
         digest = file_digest(stream).digest()
+        progress(0, info.st_size, "connecting")
         name = path.name[:60]
         identifier = hashlib.sha256(b"pingo/file/v2\x00" + digest + name.encode()).digest()[:16]
         metadata = json.dumps(
@@ -275,6 +279,7 @@ def send_resumable(channel, path: Path, max_file_bytes=64 * 1024**2, reconnects=
                 if response.get("complete") is True:
                     if set(response) != {"complete", "name"} or response.get("name") != expected:
                         raise ValueError("invalid completed receiver filename")
+                    progress(info.st_size, info.st_size, "verified")
                     return expected
                 if set(response) != {"complete", "offset", "prefix"}:
                     raise ValueError("invalid receiver resume response")
@@ -286,15 +291,19 @@ def send_resumable(channel, path: Path, max_file_bytes=64 * 1024**2, reconnects=
                 if prefix.hexdigest() != response.get("prefix"):
                     raise ValueError("receiver partial file differs from source")
                 stream.seek(offset)
+                progress(offset, info.st_size, "sending")
                 while data := stream.read(CHUNK_SIZE):
                     channel.send(bytes([CHUNK]) + CHUNK_HEADER.pack(identifier, offset) + data)
                     offset += len(data)
+                    progress(offset, info.st_size, "sending")
                 current = os.fstat(stream.fileno())
                 if offset != info.st_size or current.st_mtime_ns != info.st_mtime_ns:
                     raise ValueError("file changed during transfer")
+                progress(offset, info.st_size, "verifying")
                 completed = channel.send(bytes([END]) + identifier + digest).decode("ascii")
                 if completed != expected:
                     raise ValueError("invalid completed receiver filename")
+                progress(offset, info.st_size, "verified")
                 return completed
             except (OSError, RuntimeError) as exc:
                 if not recoverable(exc) or failure == reconnects:

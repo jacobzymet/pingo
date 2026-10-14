@@ -9,8 +9,8 @@ from .helpers import KEY
 
 
 def sessions():
-    c, s = os.urandom(32), os.urandom(32)
-    return Session(KEY, c, s, True), Session(KEY, c, s, False)
+    outgoing, incoming, transcript = (os.urandom(32) for _ in range(3))
+    return Session(outgoing, incoming, transcript), Session(incoming, outgoing, transcript)
 
 
 def test_bidirectional_and_nonce_separation():
@@ -53,8 +53,8 @@ def test_wrong_key_session_and_restart():
     c, _ = sessions()
     with pytest.raises(PacketError):
         c.decrypt(a.encrypt(b"old session"))
-    c = Session(b"x" * 32, b"c" * 32, b"s" * 32, False)
-    d = Session(KEY, b"c" * 32, b"s" * 32, True)
+    c = Session(b"x" * 32, b"x" * 32, b"s" * 32)
+    d = Session(KEY, KEY, b"s" * 32)
     with pytest.raises(PacketError):
         c.decrypt(d.encrypt(b"wrong key"))
 

@@ -22,10 +22,11 @@ class RemoteError(RuntimeError):
 
 
 class Reliable:
-    def __init__(self, endpoint: Endpoint, handler=None, attempts=8, timeout=0.75):
+    def __init__(self, endpoint: Endpoint, handler=None, attempts=8, timeout=0.75, stop=None):
         self.endpoint = endpoint
         self.handler = handler or (lambda data: b"")
         self.attempts, self.timeout = attempts, timeout
+        self.stop = stop
         if not 1 <= attempts <= 20 or not 0.005 <= timeout <= 2:
             raise ValueError("invalid retry bounds")
         self.rto = timeout
@@ -80,10 +81,12 @@ class Reliable:
                         + blob[index * FRAGMENT : (index + 1) * FRAGMENT]
                     )
                     for attempt in range(self.attempts):
+                        if self.stop is not None and self.stop.is_set():
+                            raise InterruptedError("transfer cancelled")
                         self.endpoint.check()
                         started = time.monotonic()
                         self.endpoint.send(frame)  # Each retry gets a fresh AEAD counter.
-                        if event.wait(self.rto):
+                        if self._wait(event, self.rto):
                             if attempt == 0:
                                 self._sample(time.monotonic() - started)
                             break
@@ -97,6 +100,17 @@ class Reliable:
                     with self._waiter_lock:
                         self._waiter = None
             return result[1:]
+
+    def _wait(self, event, timeout):
+        if self.stop is None:
+            return event.wait(timeout)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.stop.is_set():
+                raise InterruptedError("transfer cancelled")
+            if event.wait(min(0.1, max(0, deadline - time.monotonic()))):
+                return True
+        return False
 
     def _sample(self, elapsed):
         # Karn's rule: retransmitted fragments do not contribute RTT samples.

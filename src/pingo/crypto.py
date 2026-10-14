@@ -1,6 +1,7 @@
 """Standard AEAD/HKDF primitives and a bounded, authenticated replay window.
 
-Session challenges must be fresh on BOTH peers. Session objects are never serialized.
+Session keys come exclusively from a completed ephemeral Noise handshake.
+Session objects and ephemeral private keys are never serialized.
 """
 
 import hashlib
@@ -13,7 +14,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-MAGIC = b"PG01"
+MAGIC = b"PG02"
 HEADER = struct.Struct("!4s16sQ")
 MAX_WIRE = 1200  # ICMP payload; 1228 bytes including ordinary IPv4/ICMP headers.
 MAX_PLAIN = MAX_WIRE - HEADER.size - 16
@@ -25,7 +26,7 @@ class PacketError(ValueError):
 
 
 def authenticate(key: bytes, body: bytes) -> bytes:
-    return hmac.digest(key, b"pingo/handshake/v1\x00" + body, "sha256")
+    return hmac.digest(key, b"pingo/handshake/v2\x00" + body, "sha256")
 
 
 def sign(key: bytes, body: bytes) -> bytes:
@@ -41,19 +42,22 @@ def verify(key: bytes, packet: bytes, size: int) -> bytes:
 
 
 class Session:
-    def __init__(self, key: bytes, client_nonce: bytes, server_nonce: bytes, initiator: bool):
-        if len(key) != 32 or len(client_nonce) != 32 or len(server_nonce) != 32:
-            raise ValueError("keys and challenges must be 32 bytes")
-        transcript = client_nonce + server_nonce
-        material = HKDF(
-            algorithm=hashes.SHA256(), length=64, salt=transcript, info=b"pingo/session/v1"
-        ).derive(key)
-        self.id = hashlib.sha256(b"pingo/id/v1" + transcript).digest()[:16]
-        outgoing, incoming = (
-            (material[:32], material[32:]) if initiator else (material[32:], material[:32])
-        )
-        self._out = ChaCha20Poly1305(outgoing)
-        self._in = ChaCha20Poly1305(incoming)
+    def __init__(self, outgoing: bytes, incoming: bytes, handshake_hash: bytes):
+        if any(len(value) != 32 for value in (outgoing, incoming, handshake_hash)):
+            raise ValueError("Noise split keys and handshake hash must be 32 bytes")
+
+        # Separate datagram keys from Noise's ordered transport cipher states.
+        def datagram_key(key):
+            return HKDF(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=handshake_hash,
+                info=b"pingo/datagram/v2",
+            ).derive(key)
+
+        self.id = hashlib.sha256(b"pingo/id/v2" + handshake_hash).digest()[:16]
+        self._out = ChaCha20Poly1305(datagram_key(outgoing))
+        self._in = ChaCha20Poly1305(datagram_key(incoming))
         self._counter = 0
         self._highest = -1
         self._bitmap = 0

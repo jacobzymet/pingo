@@ -6,18 +6,25 @@ for a reliable send. Timers and callback failures close the endpoint visibly.
 """
 
 import logging
-import os
 import threading
 import time
+from dataclasses import dataclass
 from typing import Protocol
 
-from .crypto import PacketError, Session, sign, verify
+from .crypto import PacketError, Session
+from .handshake import HELLO, InitiatorHandshake, respond
 
 LOG = logging.getLogger(__name__)
-HELLO = b"PGH1"
-RESPONSE = b"PGH2"
 FINISH, READY, PING, PONG = b"\x10", b"\x11", b"\x12", b"\x13"
 MODES = {"direct": b"D", "vpn": b"C"}
+
+
+@dataclass
+class Pending:
+    hello: bytes
+    session: Session
+    response: bytes
+    expires: float
 
 
 class Carrier(Protocol):
@@ -48,45 +55,58 @@ class Endpoint:
         self._send_lock = threading.RLock()
         self._thread: threading.Thread | None = None
 
-    def connect(self, attempts: int = 8, timeout: float = 0.75) -> None:
+    def connect(self, attempts: int = 8, timeout: float = 0.75, stop=None) -> None:
         """Initiator handshake; call before starting the reader."""
         if self._thread is not None or self.session is not None:
             raise RuntimeError("connect requires a fresh endpoint")
         if not 1 <= attempts <= 20 or not 0.005 <= timeout <= 2:
             raise ValueError("invalid handshake retry bounds")
-        client = os.urandom(32)
-        hello = sign(self.key, HELLO + self.mode + client)
+        handshake = InitiatorHandshake(self.key, self.mode)
+        try:
+            self._establish(handshake, attempts, timeout, stop)
+        finally:
+            handshake.close()
+
+    def _establish(self, handshake, attempts, timeout, stop):
         session = None
         for _ in range(attempts):
-            self.carrier.send(hello)
+            if stop is not None and stop.is_set():
+                raise InterruptedError("connection cancelled")
+            self.carrier.send(handshake.hello)
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
+                if stop is not None and stop.is_set():
+                    raise InterruptedError("connection cancelled")
                 packet = self.carrier.recv(min(0.2, max(0.001, deadline - time.monotonic())))
                 if packet is None:
                     continue
                 try:
-                    body = verify(self.key, packet, 69)
-                    if body[:5] != RESPONSE + self.mode or body[5:37] != client:
-                        continue
-                    session = Session(self.key, client, body[37:], True)
+                    session = handshake.accept(self.key, packet)
                     break
-                except PacketError:
-                    continue
+                except PacketError as exc:
+                    if handshake.failed:
+                        raise TimeoutError("peer sent an invalid Noise handshake response") from exc
             if session:
                 break
         if session is None:
-            raise TimeoutError("peer did not authenticate; check addresses, key, mode and ICMP")
+            raise TimeoutError(
+                "peer did not authenticate; check addresses, key, mode, version and ICMP"
+            )
         for _ in range(attempts):
+            if stop is not None and stop.is_set():
+                raise InterruptedError("connection cancelled")
             self.carrier.send(session.encrypt(FINISH + self.mode))
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
+                if stop is not None and stop.is_set():
+                    raise InterruptedError("connection cancelled")
                 packet = self.carrier.recv(min(0.2, max(0.001, deadline - time.monotonic())))
                 if packet is None:
                     continue
                 try:
                     if session.decrypt(packet) == READY + self.mode:
                         self.session = session
-                        self._last_rx = time.monotonic()
+                        self._last_rx = self._last_ping = time.monotonic()
                         self.ready.set()
                         return
                 except PacketError:
@@ -108,27 +128,22 @@ class Endpoint:
             self.carrier.send(self.session.encrypt(data))
 
     def _hello(self, packet: bytes, now: float) -> None:
-        body = verify(self.key, packet, 37)
-        if body[:5] != HELLO + self.mode:
-            raise PacketError("wrong application mode")
-        client = body[5:]
-        if self._pending and now < self._pending[3] and client == self._pending[0]:
-            self.carrier.send(self._pending[2])
+        if self._pending and now < self._pending.expires and packet == self._pending.hello:
+            self.carrier.send(self._pending.response)
             return
         if now - self._last_hello < 0.25:
             return
+        session, response = respond(self.key, self.mode, packet)
         self._last_hello = now
-        server = os.urandom(32)
-        response = sign(self.key, RESPONSE + self.mode + client + server)
-        self._pending = (client, Session(self.key, client, server, False), response, now + 45)
+        self._pending = Pending(packet, session, response, now + 45)
         self.carrier.send(response)
 
     def _receive(self, packet: bytes, responder: bool, now: float) -> None:
         if responder and packet.startswith(HELLO):
             self._hello(packet, now)
             return
-        if responder and self._pending and now < self._pending[3]:
-            candidate = self._pending[1]
+        if responder and self._pending and now < self._pending.expires:
+            candidate = self._pending.session
             if packet[4:20] == candidate.id:
                 data = candidate.decrypt(packet)
                 if data != FINISH + self.mode:
@@ -139,7 +154,7 @@ class Endpoint:
                     self._pending = None
                     self.ready.set()
                     self.send(READY + self.mode)
-                self._last_rx = now
+                self._last_rx = self._last_ping = now
                 return
         if self.session is None:
             return
@@ -162,7 +177,7 @@ class Endpoint:
                         self._receive(packet, responder, now)
                     except PacketError:
                         pass
-                if self._pending and now >= self._pending[3]:
+                if self._pending and now >= self._pending.expires:
                     self._pending = None
                 self.on_tick()
                 if self.session and now - self._last_ping >= 5:
@@ -194,6 +209,10 @@ class Endpoint:
         if self._thread and self._thread is not threading.current_thread():
             self._thread.join(timeout=3)
         self.carrier.close()
+        with self._send_lock:
+            self._pending = None
+            self.session = None
+            self.ready.clear()
 
     def __enter__(self):
         return self

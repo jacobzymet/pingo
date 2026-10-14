@@ -9,6 +9,14 @@ from pingo.resume import RESUME, ResumableReceiver, send_resumable
 from .helpers import connected
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX FIFOs")
+def test_named_pipe_is_rejected_without_waiting_for_a_writer(tmp_path):
+    path = tmp_path / "pipe"
+    os.mkfifo(path, 0o600)
+    with pytest.raises(ValueError, match="regular"):
+        send_resumable(None, path)
+
+
 class RestartingChannel:
     def __init__(self, directory, fail_kind):
         self.directory, self.fail_kind = directory, fail_kind
@@ -76,6 +84,19 @@ def test_corrupted_prefix_is_never_resumed(tmp_path):
         with pytest.raises(ValueError, match="differs from source"):
             send_resumable(channel, source)
         assert not list(channel.directory.glob("*-file.bin"))
+    finally:
+        channel.close()
+
+
+def test_resume_preserves_checkpoint_ending_in_windows_eof_marker(tmp_path):
+    source = tmp_path / "file.bin"
+    data = b"a" * 32767 + b"\x1a" + b"remaining bytes"
+    source.write_bytes(data)
+    channel = RestartingChannel(tmp_path / "received", CHUNK)
+    try:
+        name = send_resumable(channel, source)
+        assert (channel.directory / name).read_bytes() == data
+        assert channel.offsets == [0, 32768]
     finally:
         channel.close()
 

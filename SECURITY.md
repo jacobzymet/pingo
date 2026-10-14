@@ -1,15 +1,19 @@
 # Security
 
-Pingo uses a random 32-byte shared key, an authenticated handshake, directional
-session keys derived with HKDF-SHA256, and ChaCha20-Poly1305 authenticated encryption.
+Pingo uses a random 32-byte shared key and a Noise NNpsk0 handshake with fresh
+X25519 ephemeral keys. Directional datagram keys derived with HKDF-SHA256 protect
+traffic using ChaCha20-Poly1305 with full authentication tags.
 Packet counters and an authenticated replay window reject duplicate and stale packets.
 
 ## Security boundaries
 
 - The shared key identifies the peer. Use a different key for each peer pair and
   protect the key file on both computers.
-- The protocol does not provide forward secrecy. Compromise of the shared key
-  permits impersonation and decryption of previously recorded sessions.
+- Version 0.3 provides forward secrecy for completed application sessions: later
+  disclosure of the shared key alone does not decrypt recorded traffic when ephemeral
+  and session secrets remain unavailable. Disclosure still permits future impersonation.
+  Endpoint compromise, retained memory secrets, and earlier version 0.2 traffic are
+  outside this guarantee. Python does not guarantee forensic memory erasure.
 - Network observers can see endpoint addresses, packet sizes, timing, handshake
   markers, and ICMP identifiers. Pingo does not hide its use of ICMP.
 - Received files, partial transfers, checkpoints, and keys are not encrypted at rest.

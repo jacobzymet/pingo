@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Pingo</title>
+    <link rel="stylesheet" href="app.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body data-configured="false">
+    <div class="app">
+      <header class="app-bar">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 28 28" aria-hidden="true">
+            <path d="M4 5h8v8H4zM16 15h8v8h-8z" fill="currentColor" />
+            <path
+              d="M12 9h8v6M8 13v6h8"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+          </svg>
+          <span>Pingo</span>
+        </div>
+        <nav aria-label="Workspace">
+          <button data-view="direct" aria-current="page">
+            Send &amp; receive
+          </button>
+          <button data-view="vpn">VPN tunnel</button>
+          <button data-view="check">Settings</button>
+        </nav>
+        <div class="connection-tools" aria-label="Connection management">
+          <label class="sr-only" for="connection-select">Your connection</label>
+          <select id="connection-select">
+            <option value="">No connection yet</option>
+          </select>
+          <button id="edit-connection" class="small-button" disabled>
+            Edit
+          </button>
+          <button id="new-connection" class="small-button">New</button>
+          <button id="import-connection" class="small-button">Import…</button>
+        </div>
+      </header>
+      <main>
+        <header class="page-header">
+          <div>
+            <h1 id="page-title">Send &amp; receive</h1>
+            <p id="page-description" class="muted">
+              Send from one computer. Receive on the other.
+            </p>
+          </div>
+          <span id="status" class="status" role="status">
+            Starting desktop…
+          </span>
+        </header>
+        <div id="permission-banner" class="notice" hidden>
+          <div>
+            <strong>Network access needs permission</strong>
+            <p id="permission-copy">
+              Reopen as Administrator to send, receive, or use a VPN. You can
+              set up your connection now.
+            </p>
+          </div>
+          <button id="elevate" class="secondary">
+            Reopen as Administrator
+          </button>
+        </div>
+        <div id="toast" class="toast" role="alert" hidden>
+          <div>
+            <strong id="toast-title"></strong>
+            <p id="toast-hint"></p>
+          </div>
+          <button
+            id="dismiss-toast"
+            class="icon-button"
+            aria-label="Dismiss notification"
+          >
+            ×
+          </button>
+        </div>
+        <section
+          id="peer-link"
+          class="peer-link"
+          aria-label="Connection endpoints"
+          hidden
+        >
+          <div>
+            <span class="eyebrow">This computer</span>
+            <strong id="local-ip">Not configured</strong>
+          </div>
+          <div class="link-line" aria-hidden="true"><span>↔</span></div>
+          <div>
+            <span class="eyebrow">Other computer</span>
+            <strong id="peer-ip">Add a connection</strong>
+          </div>
+          <button id="pair-connection" class="text-button" disabled>
+            Set up other computer
+          </button>
+        </section>
+        <section id="welcome" class="welcome">
+          <div class="welcome-intro">
+            <p class="eyebrow">One connection. Two computers.</p>
+            <h2>Set up your peer.</h2>
+            <p>Messages, files, and a VPN tunnel over the same connection.</p>
+            <button id="welcome-create" class="primary">
+              Add a connection
+            </button>
+            <span class="muted">Have a configuration? Use Import above.</span>
+          </div>
+          <ol class="setup-steps">
+            <li>
+              <strong>Add the other computer</strong
+              ><span>Enter its IPv4 address and generate a shared key.</span>
+            </li>
+            <li>
+              <strong>Share its setup privately</strong
+              ><span
+                >Export a matching configuration and key for your peer.</span
+              >
+            </li>
+            <li>
+              <strong>Receive, then send</strong
+              ><span
+                >Start receiving on one computer and send from the other.</span
+              >
+            </li>
+          </ol>
+        </section>
+        <section
+          id="operation"
+          class="operation"
+          hidden
+          aria-label="Current activity"
+        >
+          <div>
+            <strong id="operation-label">Connecting…</strong
+            ><span id="operation-detail" class="muted"></span>
+          </div>
+          <progress
+            id="progress"
+            aria-label="File transfer progress"
+          ></progress>
+          <button id="stop" class="secondary">Stop</button>
+        </section>
+        <section
+          id="view-direct"
+          class="view workspace"
+          aria-label="Send and receive"
+        >
+          <div class="task-tabs" role="tablist" aria-label="Transfer action">
+            <button
+              id="tab-message"
+              role="tab"
+              data-task="message"
+              aria-selected="true"
+              aria-controls="task-message"
+            >
+              Message
+            </button>
+            <button
+              id="tab-file"
+              role="tab"
+              data-task="file"
+              aria-selected="false"
+              aria-controls="task-file"
+              tabindex="-1"
+            >
+              File
+            </button>
+            <button
+              id="tab-receive"
+              role="tab"
+              data-task="receive"
+              aria-selected="false"
+              aria-controls="task-receive"
+              tabindex="-1"
+            >
+              Receive
+            </button>
+            <span id="task-hint" class="muted"
+              >Start Receive on your peer first.</span
+            >
+          </div>
+          <form id="message-form">
+            <div
+              id="task-message"
+              class="task-panel"
+              role="tabpanel"
+              aria-labelledby="tab-message"
+            >
+              <label for="message" class="sr-only">Message</label>
+              <textarea
+                id="message"
+                placeholder="Write a message to your peer…"
+                rows="4"
+                required
+                aria-describedby="message-size message-shortcut"
+              ></textarea>
+              <div class="card-footer">
+                <div class="message-meta">
+                  <span id="message-size" class="muted">0 / 60,000 bytes</span
+                  ><span id="message-shortcut" class="muted"
+                    ><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send</span
+                  >
+                </div>
+                <button
+                  id="send-message"
+                  class="primary network-action"
+                  type="submit"
+                  disabled
+                >
+                  Send message
+                </button>
+              </div>
+            </div>
+          </form>
+          <section
+            id="task-file"
+            class="task-panel"
+            role="tabpanel"
+            aria-labelledby="tab-file"
+            hidden
+          >
+            <button id="choose-file" class="file-picker">
+              <svg class="file-icon" viewBox="0 0 32 36" aria-hidden="true">
+                <path
+                  d="M5 2h14l8 8v24H5zM19 2v9h8M10 20h12M10 25h8"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <strong id="file-name">Choose a file</strong>
+              <span id="file-path">Browse this computer</span>
+            </button>
+            <div class="card-footer">
+              <div class="file-meta">
+                <span id="file-limit" class="muted"
+                  >64 MiB per file by default</span
+                ><span class="muted"
+                  >Send the same file again to resume an interrupted
+                  transfer.</span
+                >
+              </div>
+              <button id="send-file" class="primary network-action" disabled>
+                Send file
+              </button>
+            </div>
+          </section>
+          <section
+            id="task-receive"
+            class="task-panel receive-panel"
+            role="tabpanel"
+            aria-labelledby="tab-receive"
+            hidden
+          >
+            <div class="receive-intro">
+              <div class="receive-symbol" aria-hidden="true">↓</div>
+              <h2 id="receive-title">Receive from your peer.</h2>
+              <p id="receive-copy">
+                Keep this window open while the other computer sends.
+              </p>
+            </div>
+            <div class="receive-folder">
+              <span class="eyebrow">Files save to</span
+              ><span id="receive-folder" class="folder-path"
+                >Your receive folder</span
+              ><button id="open-received" class="text-button" disabled>
+                Open folder
+              </button>
+            </div>
+            <div class="card-footer">
+              <span class="muted">Messages appear in Activity below.</span>
+              <button id="receive" class="primary network-action" disabled>
+                Start receiving
+              </button>
+            </div>
+          </section>
+        </section>
+        <section id="view-vpn" class="view" aria-label="VPN tunnel" hidden>
+          <form id="vpn-form" class="card">
+            <div class="card-heading">
+              <div>
+                <h2>Connect a VPN tunnel</h2>
+                <p class="muted">
+                  Use the same connection and key. Both computers must choose
+                  VPN mode.
+                </p>
+              </div>
+            </div>
+            <div class="form-grid">
+              <label>
+                Role
+                <select id="vpn-role">
+                  <option value="client">
+                    Client — connect to the other computer
+                  </option>
+                  <option value="responder">
+                    Responder — wait for the client
+                  </option>
+                </select>
+              </label>
+              <label>
+                Tunnel address
+                <input id="vpn-address" value="10.77.0.1/30" required />
+                <small>Client: 10.77.0.1/30 · Responder: 10.77.0.2/30</small>
+              </label>
+              <label>
+                Route through the tunnel
+                <select id="vpn-routing">
+                  <option value="subnet">Tunnel subnet only</option>
+                  <option value="selected">Selected networks</option>
+                  <option value="default">Default IPv4 traffic</option>
+                </select>
+              </label>
+              <label id="routes-label" hidden>
+                Selected networks
+                <input id="vpn-routes" placeholder="192.168.50.0/24" />
+                <small>Separate networks with commas.</small>
+              </label>
+              <label id="driver-label">
+                Official Wintun DLL
+                <div class="input-button">
+                  <input
+                    id="vpn-driver"
+                    placeholder="Choose signed wintun.dll"
+                    readonly
+                  />
+                  <button id="choose-driver" type="button" class="small-button">
+                    Browse…
+                  </button>
+                </div>
+                <small>
+                  Windows VPN only. Must match the app’s architecture.
+                </small>
+              </label>
+            </div>
+            <p id="vpn-route-note" class="inline-note" hidden>
+              The responder needs forwarding, firewall rules, a return route or
+              NAT, and Internet access. Pingo does not configure these for you.
+              Default routing enables a kill switch and tunnel DNS.
+            </p>
+            <details class="advanced">
+              <summary>Advanced VPN settings</summary>
+              <div class="form-grid">
+                <label>
+                  Allowed peer source networks
+                  <input
+                    id="vpn-sources"
+                    placeholder="Defaults to the tunnel subnet"
+                  />
+                  <small>
+                    Default IPv4 routing needs 0.0.0.0/0; this trusts your peer
+                    to supply any IPv4 source.
+                  </small>
+                </label>
+                <label>
+                  DNS resolvers
+                  <input
+                    id="vpn-dns"
+                    placeholder="Automatic: 1.1.1.1 for default routing"
+                  />
+                  <small>IPv4 addresses separated by commas.</small>
+                </label>
+                <label>
+                  Kill switch
+                  <select id="vpn-kill">
+                    <option value="auto">
+                      Automatic (on with default route)
+                    </option>
+                    <option value="on">On</option>
+                    <option value="off">Off</option>
+                  </select>
+                  <small>
+                    Blocks outside traffic. Failures retain protection until you
+                    recover.
+                  </small>
+                </label>
+                <label>
+                  Interface name
+                  <input id="vpn-interface" value="pingo0" maxlength="15" />
+                </label>
+                <label class="checkbox">
+                  <input id="vpn-no-dns" type="checkbox" />
+                  Leave system DNS unchanged
+                </label>
+              </div>
+            </details>
+            <div class="card-footer">
+              <span class="muted">IPv4 only · MTU 1,000 bytes</span>
+              <button
+                id="connect-vpn"
+                class="primary network-action"
+                type="submit"
+                disabled
+              >
+                Connect VPN
+              </button>
+            </div>
+          </form>
+        </section>
+        <section
+          id="view-check"
+          class="view"
+          aria-label="Setup and recovery"
+          hidden
+        >
+          <section class="card">
+            <div class="card-heading">
+              <div>
+                <h2>Check before connecting</h2>
+                <p class="muted">
+                  Checks this computer. Your peer and firewall still need to be
+                  configured.
+                </p>
+              </div>
+              <button id="run-check" class="secondary" disabled>
+                Run setup check
+              </button>
+            </div>
+            <div id="checks" class="checks">
+              <p class="empty">Add a connection, then run the setup check.</p>
+            </div>
+          </section>
+          <details class="card recovery">
+            <summary>Restore connectivity after a VPN failure</summary>
+            <p>
+              A VPN kill switch can keep outside traffic blocked after a
+              failure. Stop the VPN first, then remove Pingo’s retained
+              protection. This allows ordinary traffic again.
+            </p>
+            <label id="recovery-table-label" hidden>
+              Linux recovery table
+              <input
+                id="recovery-table"
+                placeholder="pingo_ followed by 32 hex digits"
+              />
+              <small>
+                Use the exact identity printed when the kill switch started.
+              </small>
+            </label>
+            <button id="unlock" class="secondary">
+              Remove retained protection
+            </button>
+            <p class="muted">
+              Route cleanup errors include exact recovery commands in the
+              activity log.
+            </p>
+          </details>
+        </section>
+        <div id="inspection" class="inspection">
+          <section class="activity-section" aria-labelledby="activity-title">
+            <div class="section-heading">
+              <h2 id="activity-title">Activity</h2>
+              <span id="activity-count" class="muted"
+                >Messages &amp; events</span
+              >
+            </div>
+            <ol id="activity" class="activity">
+              <li class="empty">
+                Messages, files, and connection updates appear here.
+              </li>
+            </ol>
+          </section>
+          <details id="packet-panel" class="trace-section" open>
+            <summary class="trace-summary">
+              <h2>Packet trace</h2>
+              <span id="trace-state">Waiting</span
+              ><span class="trace-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <div class="trace-heading">
+              <div class="trace-tools">
+                <label class="sr-only" for="trace-filter">Filter packets</label>
+                <select id="trace-filter">
+                  <option value="all">All packets</option>
+                  <option value="tx">Sent</option>
+                  <option value="rx">Received</option>
+                </select>
+                <button id="pause-trace" aria-pressed="false">
+                  Pause display
+                </button>
+                <button id="export-trace">Export…</button>
+              </div>
+              <label class="checkbox hex-toggle"
+                ><input id="show-hex" type="checkbox" checked />Show hex</label
+              >
+            </div>
+            <div class="trace-metrics">
+              <span>
+                Sent
+                <strong id="metric-tx">0 B</strong>
+              </span>
+              <span>
+                Received
+                <strong id="metric-rx">0 B</strong>
+              </span>
+              <span>
+                Rate
+                <strong id="metric-rate">0 B/s</strong>
+              </span>
+            </div>
+            <div
+              id="trace"
+              class="trace"
+              tabindex="0"
+              aria-label="Packet trace"
+            >
+              <p class="trace-empty">
+                Encrypted packets appear when you send, receive, or connect a
+                VPN.
+              </p>
+            </div>
+            <p id="trace-retention" class="trace-retention">
+              Latest 120 packets · export up to 2,000 records. Contains
+              sensitive metadata.
+            </p>
+          </details>
+        </div>
+        <footer class="app-footer">
+          <span id="version">Pingo desktop</span
+          ><span>Both peers need reachable IPv4 addresses.</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="connection-dialog" aria-labelledby="connection-dialog-title">
+      <form id="connection-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Peer setup</p>
+            <h2 id="connection-dialog-title">Add a connection</h2>
+          </div>
+          <button
+            id="close-dialog"
+            class="icon-button"
+            type="button"
+            aria-label="Close connection setup"
+          >
+            ×
+          </button>
+        </div>
+        <p class="muted">
+          Add your peer’s address and key. Then export its matching setup from
+          the connection bar.
+        </p>
+        <div id="dialog-error" class="form-error" role="alert" hidden></div>
+        <div class="form-grid">
+          <label>
+            Connection name
+            <input
+              id="profile-name"
+              value="My connection"
+              maxlength="80"
+              required
+              autocomplete="off"
+              placeholder="e.g. Home computer"
+            />
+          </label>
+          <label>
+            Other computer’s IPv4
+            <input
+              id="profile-peer"
+              placeholder="192.168.1.20"
+              required
+              autocomplete="off"
+            />
+            <small>Its real network address, outside the tunnel.</small>
+          </label>
+          <label>
+            This computer’s IPv4
+            <input
+              id="profile-bind"
+              list="local-addresses"
+              value="0.0.0.0"
+              required
+              autocomplete="off"
+            />
+            <datalist id="local-addresses"></datalist>
+            <small id="local-address-hint">
+              0.0.0.0 listens on all interfaces. Enter your real IP to export
+              peer setup.
+            </small>
+          </label>
+          <label>
+            Shared key file
+            <div class="input-button">
+              <input
+                id="profile-key"
+                readonly
+                required
+                placeholder="Choose or generate a key"
+              />
+              <button id="choose-key" class="small-button" type="button">
+                Browse…
+              </button>
+            </div>
+            <button id="generate-key" type="button" class="text-button">
+              Generate a new shared key
+            </button>
+            <small>
+              Generate on one computer only. Both computers need the same key.
+            </small>
+          </label>
+          <label class="span-two">
+            Receive folder
+            <div class="input-button">
+              <input
+                id="profile-folder"
+                placeholder="Default: Pingo’s private receive folder"
+              />
+              <button id="choose-folder" class="small-button" type="button">
+                Browse…
+              </button>
+            </div>
+          </label>
+        </div>
+        <details class="advanced">
+          <summary>Retries and storage limits</summary>
+          <div class="form-grid">
+            <label>
+              Initial retry timeout (seconds)
+              <input
+                id="profile-timeout"
+                type="number"
+                min="0.05"
+                max="2"
+                step="0.05"
+                value="0.75"
+                required
+              />
+            </label>
+            <label>
+              Attempts per packet
+              <input
+                id="profile-attempts"
+                type="number"
+                min="1"
+                max="20"
+                value="8"
+                required
+              />
+            </label>
+            <label>
+              Reconnect attempts
+              <input
+                id="profile-reconnects"
+                type="number"
+                min="0"
+                max="20"
+                value="10"
+                required
+              />
+            </label>
+            <label>
+              Resume retention (hours)
+              <input
+                id="profile-retention"
+                type="number"
+                min="0.016666666666666666"
+                max="168"
+                step="any"
+                value="24"
+                required
+              />
+            </label>
+            <label>
+              Maximum file size (MiB)
+              <input
+                id="profile-file-limit"
+                type="number"
+                min="0"
+                max="1024"
+                value="64"
+                step="any"
+                required
+              />
+            </label>
+            <label>
+              Receive folder quota (MiB)
+              <input
+                id="profile-folder-limit"
+                type="number"
+                min="0"
+                max="4096"
+                value="256"
+                step="any"
+                required
+              />
+            </label>
+          </div>
+        </details>
+        <div class="dialog-footer">
+          <span class="muted">Keys stay on your computer.</span>
+          <button id="save-connection" class="primary" type="submit">
+            Save connection
+          </button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

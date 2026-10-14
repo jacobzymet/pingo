@@ -1,8 +1,11 @@
 import ipaddress
 import os
+import stat
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+from .permissions import private_file
 
 
 @dataclass(frozen=True)
@@ -20,6 +23,11 @@ class Config:
     def load(cls, path: Path) -> "Config":
         with path.open("rb") as stream:
             data = tomllib.load(stream)
+        return cls.from_data(data, path.resolve().parent)
+
+    @classmethod
+    def from_data(cls, data, root):
+        data = dict(data)
         allowed = {
             "peer",
             "key_file",
@@ -37,7 +45,6 @@ class Config:
         for field in ("peer", "key_file", "bind", "receive_dir"):
             if field in data and not isinstance(data[field], str):
                 raise ValueError(f"{field} must be a string")
-        root = path.resolve().parent
         data["key_file"] = root / data["key_file"]
         data["receive_dir"] = root / data.get("receive_dir", "received")
         config = cls(**data)
@@ -61,9 +68,15 @@ class Config:
         return config
 
     def key(self) -> bytes:
-        if os.name == "posix" and self.key_file.stat().st_mode & 0o077:
-            raise ValueError("key file must be private: chmod 600 KEYFILE")
-        with self.key_file.open("rb") as stream:
+        fd = os.open(
+            self.key_file, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        )
+        with os.fdopen(fd, "rb") as stream:
+            metadata = os.fstat(stream.fileno())
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("key file must be a regular file")
+            if os.name == "posix" and metadata.st_mode & 0o077:
+                raise ValueError("key file must be private: chmod 600 KEYFILE")
             data = stream.read(33)
         if len(data) != 32:
             raise ValueError("key file must contain exactly 32 random bytes; use pingo keygen")
@@ -72,6 +85,11 @@ class Config:
 
 def generate_key(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as stream:
-        stream.write(os.urandom(32))
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            private_file(path)
+            stream.write(os.urandom(32))
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise

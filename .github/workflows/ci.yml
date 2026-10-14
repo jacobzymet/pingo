@@ -23,10 +23,38 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install '.[dev]'
+      - run: python -m pip install '.[dev,research]'
+      - if: runner.os == 'Windows'
+        run: python -m pip install '.[gui]'
       - run: python -m pytest -q -m 'not live'
-      - run: python -m ruff check src tests
+      - run: python -m ruff check src tests packaging
       - run: python -m compileall -q src
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --upgrade pip build
+      - run: python -m build
+      - run: python -m pip install dist/*.whl
+      - name: Check installed UI assets and Noise handshake
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -I - <<'PY'
+          from pingo.desktop import page_html
+          from pingo.handshake import InitiatorHandshake, respond
+          assert '<style>' in page_html() and '<script>' in page_html()
+          key = bytes(range(32))
+          handshake = InitiatorHandshake(key, b'D')
+          receiver, response = respond(key, b'D', handshake.hello)
+          sender = handshake.accept(key, response)
+          assert receiver.decrypt(sender.encrypt(b'package check')) == b'package check'
+          PY
 
   live-linux:
     runs-on: ubuntu-latest

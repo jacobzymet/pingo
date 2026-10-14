@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "captures": [
+    {"id": "linux-ping-train", "path": "../captures/linux-ping-train.pcapng", "label": "ordinary", "system": "linux", "split": "train", "group": "linux-ping-run-1"},
+    {"id": "linux-pingo-train", "path": "../captures/linux-pingo-train.pcapng", "label": "pingo", "system": "linux", "split": "train", "group": "linux-pingo-run-1"},
+    {"id": "linux-ping-test", "path": "../captures/linux-ping-test.pcapng", "label": "ordinary", "system": "linux", "split": "test", "group": "linux-ping-run-2"},
+    {"id": "linux-pingo-test", "path": "../captures/linux-pingo-test.pcapng", "label": "pingo", "system": "linux", "split": "test", "group": "linux-pingo-run-2"},
+    {"id": "windows-ping-train", "path": "../captures/windows-ping-train.pcapng", "label": "ordinary", "system": "windows", "split": "train", "group": "windows-ping-run-1"},
+    {"id": "windows-pingo-train", "path": "../captures/windows-pingo-train.pcapng", "label": "pingo", "system": "windows", "split": "train", "group": "windows-pingo-run-1"},
+    {"id": "windows-ping-test", "path": "../captures/windows-ping-test.pcapng", "label": "ordinary", "system": "windows", "split": "test", "group": "windows-ping-run-2"},
+    {"id": "windows-pingo-test", "path": "../captures/windows-pingo-test.pcapng", "label": "pingo", "system": "windows", "split": "test", "group": "windows-pingo-run-2"}
+  ]
+}

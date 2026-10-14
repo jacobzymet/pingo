@@ -18,6 +18,27 @@ def test_keygen_private_no_overwrite(tmp_path):
         assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_keygen_permission_failure_removes_unwritten_key(tmp_path, monkeypatch):
+    path = tmp_path / "peer.key"
+
+    def fail(_path):
+        assert _path.read_bytes() == b""
+        raise PermissionError("cannot secure key")
+
+    monkeypatch.setattr("pingo.config.private_file", fail)
+    with pytest.raises(PermissionError, match="secure"):
+        generate_key(path)
+    assert not path.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX FIFOs")
+def test_key_fifo_is_rejected_without_waiting_for_a_writer(tmp_path):
+    path = tmp_path / "key-fifo"
+    os.mkfifo(path, 0o600)
+    with pytest.raises(ValueError, match="regular file"):
+        Config("192.0.2.20", path).key()
+
+
 def test_paths_are_relative_to_config(tmp_path):
     key = tmp_path / "keys" / "peer.key"
     generate_key(key)

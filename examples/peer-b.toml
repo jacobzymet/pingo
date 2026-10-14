@@ -1,0 +1,9 @@
+# Copy to local-b.toml. Swap actual endpoint addresses relative to peer A.
+peer = "192.0.2.10"
+bind = "192.0.2.20"
+key_file = "keys/peer.key"
+receive_dir = "received"
+retry_seconds = 0.75
+attempts = 8
+max_file_bytes = 67108864
+max_receive_bytes = 268435456

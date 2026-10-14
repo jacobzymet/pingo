@@ -1,0 +1,43 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install '.[dev]'
+      - run: python -m pytest -q -m 'not live'
+      - run: python -m ruff check src tests
+      - run: python -m compileall -q src
+
+  live-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: docker build -t pingo-live-test -f tests/live/Dockerfile .
+      - name: Real ICMP, TUN, reconnect, resume, and leak tests
+        run: >-
+          docker run --rm --cap-add NET_ADMIN --cap-add SYS_ADMIN
+          --device /dev/net/tun --security-opt apparmor=unconfined
+          --security-opt seccomp=unconfined pingo-live-test

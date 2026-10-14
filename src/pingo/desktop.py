@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import __version__
 from .config import Config, generate_key
-from .permissions import private_directory, private_file
+from .permissions import desktop_owner, private_directory, private_file
 
 PROFILE_FIELDS = {
     "name",
@@ -59,6 +59,14 @@ CONFIG_FIELDS = {
 def data_directory():
     if sys.platform == "win32":
         return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / "Pingo"
+    if sys.platform == "darwin":
+        owner = desktop_owner()
+        home = Path.home()
+        if owner is not None:
+            import pwd
+
+            home = Path(pwd.getpwuid(owner[0]).pw_dir)
+        return home / "Library/Application Support/Pingo"
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "pingo"
 
 
@@ -88,7 +96,7 @@ def config_text(profile):
 def error_hint(text):
     value = text.lower()
     if any(item in value for item in ("10013", "permission", "access is denied", "administrator")):
-        return "Reopen Pingo as Administrator on Windows, or with root privileges on Linux."
+        return "Windows: reopen as Administrator. macOS/Linux: launch Pingo with sudo/root."
     if any(item in value for item in ("authenticate", "confirm session", "not acknowledged")):
         return (
             "Ask the other person to start Receive (or the VPN responder). Check both IPv4 "
@@ -356,12 +364,12 @@ class Desktop:
             "pass" if elevated() else "fail",
             "Ready to use raw ICMP."
             if elevated()
-            else "Windows: reopen as Administrator. Linux: launch with sudo/root.",
+            else "Windows: reopen as Administrator. macOS/Linux: launch with sudo/root.",
         )
         item(
             "Supported operating system",
-            "pass" if sys.platform in ("win32", "linux") else "fail",
-            "Windows and Linux are supported.",
+            "pass" if sys.platform in ("win32", "linux", "darwin") else "fail",
+            "Windows, macOS and Linux are supported.",
         )
         directory = Path(profile["receive_dir"])
         ancestor = directory
@@ -385,6 +393,14 @@ class Desktop:
                 if exists
                 else "Choose the official signed wintun.dll in VPN settings. "
                 "Messages/files do not need it.",
+            )
+        elif sys.platform == "darwin":
+            item(
+                "macOS capture and VPN",
+                "manual",
+                "Uses system libpcap and a fresh utun adapter. Root is required for networking. "
+                "The kill switch requires the standard com.apple/* PF hook and resets existing "
+                "PF connections. DNS changes are restored on stop or with pingo unlock.",
             )
         elif sys.platform == "linux":
             ready = Path("/dev/net/tun").exists() and bool(shutil.which("ip"))
@@ -413,7 +429,7 @@ class Desktop:
             job_config = None
             if action == "unlock":
                 argv = ["unlock"]
-                if sys.platform != "win32":
+                if sys.platform == "linux":
                     table = payload.get("table", "")
                     if not re.fullmatch(r"pingo_[0-9a-f]{32}", table):
                         raise ValueError("Enter the exact pingo_<32 hex digits> recovery table.")
@@ -707,7 +723,9 @@ class Api:
             os.startfile(folder)
         else:
             subprocess.Popen(
-                ["xdg-open", str(folder)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                ["/usr/bin/open" if sys.platform == "darwin" else "xdg-open", str(folder)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         return str(folder)
 
@@ -732,7 +750,7 @@ class Api:
         self._desktop._idle()
         if sys.platform != "win32":
             raise ValueError(
-                "On Linux, close Pingo and launch pingo-gui with sudo/root privileges."
+                "On macOS/Linux, close Pingo and launch pingo-gui with sudo/root privileges."
             )
         if elevated():
             return False
@@ -805,6 +823,7 @@ def main(argv=None):
         startup_error(
             f"Pingo could not open its desktop window.\n\n{exc}\n\n"
             "On Windows, check that Microsoft Edge WebView2 Runtime is installed. "
+            "On macOS, use a Python installation with pywebview's Cocoa dependencies. "
             "On Linux, install a pywebview GTK or Qt backend."
         )
         return 1

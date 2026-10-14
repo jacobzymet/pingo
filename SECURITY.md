@@ -22,6 +22,10 @@ Packet counters and an authenticated replay window reject duplicate and stale pa
   Local administrators, the runtime, and the selected Wintun driver are also trusted.
 - The Windows kill switch protects locally originated traffic, not router forwarding.
   Other firewall rules, DNS policies, and local proxies can affect connectivity.
+- The macOS kill switch requires the standard PF anchor hook and resets existing
+  PF connection states when enabled. It refuses conflicting or skipped PF policies.
+  macOS automatic DNS changes use root-owned recovery records; stop or `pingo unlock`
+  restores settings that still match Pingo's changes. Run only one active Pingo instance.
 
 ## Recovery
 

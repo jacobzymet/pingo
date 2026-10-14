@@ -70,7 +70,11 @@ def parser():
             command.add_argument("--no-resume", action="store_true", help="use legacy transfers")
         elif name == "vpn":
             command.add_argument("--listen", action="store_true", help="act as responder")
-            command.add_argument("--interface", default="pingo0")
+            command.add_argument(
+                "--interface",
+                default="pingo0",
+                help="adapter name (macOS: auto or a fresh utunN; pingo0 means auto)",
+            )
             command.add_argument("--address", required=True, help="local TUN IPv4 CIDR")
             command.add_argument(
                 "--wintun-dll",
@@ -89,7 +93,7 @@ def parser():
                 "--kill-switch",
                 action=argparse.BooleanOptionalAction,
                 default=None,
-                help="block outside traffic; default with default route",
+                help="block outside traffic; default with default route; macOS resets PF states",
             )
             command.add_argument("--route", action="append", default=[], help="selected IPv4 CIDR")
             command.add_argument(
@@ -196,8 +200,8 @@ def run_vpn(factory, config, args, stop, traffic, events=None):
         raise ValueError("kill switch is for VPN clients; omit it on the exit/responder")
     if sys.platform == "win32" and args.wintun_dll is None:
         raise ValueError("Windows VPN requires --wintun-dll pointing to signed official wintun.dll")
-    if sys.platform not in ("win32", "linux"):
-        raise OSError("VPN requires Linux TUN or Windows Wintun")
+    if sys.platform not in ("win32", "linux", "darwin"):
+        raise OSError("VPN requires Linux TUN, Windows Wintun, or macOS utun")
     selected = list(args.route)
     for server in dns:
         prefix = str(ipaddress.IPv4Address(server)) + "/32"
@@ -205,18 +209,26 @@ def run_vpn(factory, config, args, stop, traffic, events=None):
             selected.append(prefix)
     routes_class = WindowsRoutes if sys.platform == "win32" else Routes
     dns_class = WindowsDNS if sys.platform == "win32" else LinuxDNS
-    routes = routes_class(config.peer, args.interface, args.address, selected, args.default_route)
+    if sys.platform == "darwin":
+        from .macos import MacDNS, MacKillSwitch, MacRoutes, Utun
+
+        routes_class, dns_class = MacRoutes, MacDNS
     with ExitStack() as stack:
         tun = stack.enter_context(
             Wintun(args.interface, args.wintun_dll)
             if sys.platform == "win32"
+            else Utun(args.interface)
+            if sys.platform == "darwin"
             else Tun(args.interface)
         )
+        routes = routes_class(config.peer, tun.name, args.address, selected, args.default_route)
         if kill:
             if sys.platform == "win32":
                 from .wfp import WindowsKillSwitch
 
                 guard = WindowsKillSwitch(config.peer, tun)
+            elif sys.platform == "darwin":
+                guard = MacKillSwitch(config.peer, tun.name)
             else:
                 guard = LinuxKillSwitch(config.peer, tun.name)
             stack.enter_context(guard)
@@ -298,6 +310,10 @@ def main(argv=None, events=None, stop=None):
 
                 unlock_windows()
                 cleanup_windows_dns()
+            elif sys.platform == "darwin":
+                from .macos import unlock_macos
+
+                unlock_macos()
             else:
                 from .network import unlock_linux
 

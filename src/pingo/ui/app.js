@@ -390,7 +390,8 @@
         $("permission-copy").textContent =
           "Launch Pingo with sudo/root for network actions. You can configure your connection now.";
       $("driver-label").hidden = s.platform !== "win32";
-      $("recovery-table-label").hidden = s.platform === "win32";
+      $("interface-hint").hidden = s.platform !== "darwin";
+      $("recovery-table-label").hidden = s.platform !== "linux";
       if (s.recovery_table && !$("recovery-table").value)
         $("recovery-table").value = s.recovery_table;
       state.missed += s.missed;
@@ -708,7 +709,9 @@
         if (
           (def || kill === "on") &&
           !confirm(
-            "This VPN can change routes and block outside traffic. If it fails, protection stays active; use Settings to restore connectivity. Continue?",
+            "This VPN can change routes and block outside traffic. " +
+            (state.platform === "darwin" ? "The macOS kill switch also resets existing PF connections. " : "") +
+            "If it fails, protection stays active; use Settings to restore connectivity. Continue?",
           )
         )
           return;

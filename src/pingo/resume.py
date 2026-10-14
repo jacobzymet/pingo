@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from .direct import ABORT, BEGIN, CHUNK, CHUNK_HEADER, CHUNK_SIZE, END, Receiver
+from .permissions import preserve_desktop_owner
 from .reconnect import recoverable
 
 RESUME = 37
@@ -87,6 +88,7 @@ class ResumableReceiver(Receiver):
         flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(temporary, flags, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            preserve_desktop_owner(temporary)
             json.dump(record, stream, separators=(",", ":"))
             stream.flush()
             os.fsync(stream.fileno())
@@ -212,6 +214,7 @@ class ResumableReceiver(Receiver):
         fd = os.open(temporary, flags, 0o600)
         stream = os.fdopen(fd, "r+b")
         try:
+            preserve_desktop_owner(temporary)
             if os.fstat(fd).st_size < state["offset"]:
                 raise ValueError("partial receiver file is truncated")
             stream.truncate(state["offset"])

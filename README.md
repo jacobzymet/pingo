@@ -2,7 +2,7 @@
 
 Pingo is an experimental Python application for encrypted, authenticated communication over
 IPv4 ICMP. One shared transport powers reliable messages/file transfers and a
-Linux TUN or Windows Wintun VPN. Two configured peers share one random 32-byte key.
+Linux TUN, Windows Wintun, or macOS utun VPN. Two configured peers share one random 32-byte key.
 
 ICMP does not provide reliable delivery. Packet ordering, retransmission, and
 connection management must be implemented above it.
@@ -19,9 +19,10 @@ addresses and inbound ICMP echo requests allowed from the other peer.
 
 | Mode | Platforms | Requirements |
 | --- | --- | --- |
-| Messages and files | Windows and Linux | Raw ICMP permissions and a shared key |
+| Messages and files | Windows, macOS and Linux | ICMP/capture permissions and a shared key |
 | Linux IPv4 VPN | Linux | TUN, iproute2; nftables for the kill switch; systemd-resolved for DNS |
 | Windows IPv4 VPN | Windows | Signed official Wintun DLL; Administrator permissions |
+| macOS IPv4 VPN | macOS 12+ | Built-in utun/libpcap; root; standard PF hook for the kill switch |
 
 IPv6, NAT traversal, and multiple peers are unsupported.
 
@@ -41,6 +42,10 @@ For an existing environment:
 .\.venv\Scripts\python.exe -m pip install -e ".[gui]"
 .\.venv\Scripts\python.exe -m pingo gui
 ```
+
+When changing Python versions, create a fresh virtual environment instead of
+reusing `.venv`. If native dependencies fail to import after recreating it, repair
+them with `.\.venv\Scripts\python.exe -m pip install --force-reinstall -e ".[gui]"`.
 
 The Windows desktop uses Microsoft Edge WebView2 Runtime; install the official
 [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
@@ -86,6 +91,28 @@ yourself. `pingo gui --data-dir PATH` can select a different storage directory.
 On Linux, install a pywebview GTK or Qt backend, for example
 `pip install -e '.[gui]' 'pywebview[qt]'`, then launch from a graphical session
 with the permissions needed for raw ICMP/TUN.
+
+### macOS
+
+Install a current Python 3.11+ and run `sh 'Start Pingo.command'` from this checkout.
+The launcher installs desktop dependencies if necessary, then asks for your macOS
+administrator password through `sudo`. Networking requires root access to raw
+ICMP, BPF capture and utun; configuration can also be opened without root.
+Settings and generated keys live in `~/Library/Application Support/Pingo`.
+When launched with sudo, app-owned files retain the original user's ownership.
+
+For manual source startup:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[gui]'
+sudo .venv/bin/python -m pingo gui
+```
+
+On Intel Macs, current cryptography releases build from source. Install Xcode
+Command Line Tools, Rust, pkg-config and OpenSSL first, and set `OPENSSL_DIR` to
+your OpenSSL prefix when installing dependencies. Apple Silicon uses native wheels.
+See the [macOS guide](docs/macos.md) for VPN setup, recovery and native builds.
 
 ### Portable Windows build
 

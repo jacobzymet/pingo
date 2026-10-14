@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pingo-tunnel"
 version = "0.3.0"
-description = "Authenticated ICMP transport with resumable transfers and Linux/Windows IPv4 VPNs"
+description = "Authenticated ICMP transport with resumable transfers and cross-platform IPv4 VPNs"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"

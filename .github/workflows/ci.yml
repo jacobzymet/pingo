@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-15]
         python: ['3.11', '3.13']
     runs-on: ${{ matrix.os }}
     steps:
@@ -24,11 +24,55 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install '.[dev,research]'
-      - if: runner.os == 'Windows'
+      - if: runner.os != 'Linux'
         run: python -m pip install '.[gui]'
       - run: python -m pytest -q -m 'not live'
       - run: python -m ruff check src tests packaging
       - run: python -m compileall -q src
+
+  macos-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Native build dependencies
+        run: |
+          if [ "$(uname -m)" = x86_64 ]; then
+            brew install openssl@3 pkgconf
+            echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          fi
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install '.[dev,build,research]'
+      - name: Real ICMP capture and utun allocation
+        run: sudo env PINGO_MAC_LIVE=1 "$(command -v python)" -m pytest -q -m live tests/live/test_macos.py
+      - name: Build native app
+        run: sh scripts/build-macos.sh "$(command -v python)"
+      - name: Native packaged desktop check
+        run: |
+          python - <<'PY'
+          import json, pathlib, subprocess
+          report = pathlib.Path('output/macos-packaged-smoke.json').resolve()
+          subprocess.run(['dist/Pingo.app/Contents/MacOS/Pingo', '--smoke-test', str(report)],
+                         check=True, timeout=90)
+          result = json.loads(report.read_text())
+          assert result['passed'], result
+          PY
+      - name: Save native Mac package
+        uses: actions/upload-artifact@v7
+        with:
+          name: Pingo-${{ matrix.os }}
+          path: dist/Pingo-macOS-*.zip
+          if-no-files-found: error
+          compression-level: 0
 
   package:
     runs-on: ubuntu-latest

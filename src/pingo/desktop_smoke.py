@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -138,5 +139,5 @@ def run(result_path):
             result_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
             window.destroy()
 
-    webview.start(verify, gui="edgechromium")
+    webview.start(verify, gui="edgechromium" if sys.platform == "win32" else None)
     return 0 if results["passed"] else 1

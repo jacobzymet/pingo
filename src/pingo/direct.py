@@ -10,6 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from .permissions import preserve_desktop_owner
 from .reliable import Reliable
 
 MESSAGE, BEGIN, CHUNK, END, ABORT = 32, 33, 34, 35, 36
@@ -26,7 +27,10 @@ class Receiver:
         on_message=None,
     ):
         self.directory = directory
+        existing = directory.exists()
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if not existing:
+            preserve_desktop_owner(directory)
         self.max_file_bytes = max_file_bytes
         self.max_receive_bytes = max_receive_bytes
         self.on_message = on_message or (lambda text: None)
@@ -102,6 +106,7 @@ class Receiver:
             stream = tempfile.NamedTemporaryFile(
                 dir=self.directory, prefix="pingo-", suffix=".part", delete=False
             )
+            preserve_desktop_owner(Path(stream.name))
             self.active = {
                 "id": identifier,
                 "size": size,

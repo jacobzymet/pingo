@@ -11,7 +11,7 @@ python -m compileall -q src
 
 Unit tests use simulated transports, mock TUN/Wintun APIs, and mock system-command
 runners. They do not change host networking. Tests marked `live` run only when
-explicitly enabled. CI runs unit tests on Windows and Linux with Python 3.11 and 3.13.
+explicitly enabled. CI runs unit tests on Windows, macOS and Linux with Python 3.11 and 3.13.
 
 ## Linux integration tests
 
@@ -67,3 +67,15 @@ bridge. Serve the embedded static HTML on localhost port 8766, then run:
 ```sh
 playwright-cli -s=pingo run-code --filename scripts/desktop-ui-check.js
 ```
+
+## macOS checks
+
+The [macOS guide](macos.md) covers source startup, native builds, privileges and
+recovery. The `macos-native` CI job builds on Apple Silicon and Intel, opens the
+packaged Cocoa interface, and runs `tests/live/test_macos.py` with explicit root
+permission. Those kernel tests exercise loopback ICMP capture, a fresh utun's
+lifetime, and PF parsing without installing a firewall or changing host routes/DNS.
+
+The platform unit tests simulate libpcap, utun, route commands, PF policy conflicts,
+DNS rollback and crash recovery. Full two-peer VPN and leak tests require an isolated
+Mac/VM; the Windows/Linux test results do not establish macOS network behavior.

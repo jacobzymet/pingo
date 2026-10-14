@@ -6,6 +6,7 @@ import functools
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -65,6 +66,22 @@ def private_file(path):
         _windows_private(path, False)
     else:
         path.chmod(0o600)
+        preserve_desktop_owner(path)
+
+
+def desktop_owner():
+    if sys.platform != "darwin" or not hasattr(os, "geteuid") or os.geteuid() != 0:
+        return None
+    uid, gid = os.environ.get("SUDO_UID", ""), os.environ.get("SUDO_GID", "")
+    if uid.isdecimal() and gid.isdecimal() and 0 < int(uid) < 2**31 and int(gid) < 2**31:
+        return int(uid), int(gid)
+    return None
+
+
+def preserve_desktop_owner(path):
+    owner = desktop_owner()
+    if owner is not None:
+        os.chown(path, *owner)
 
 
 def private_directory(path):
@@ -77,3 +94,4 @@ def private_directory(path):
         _windows_private(path, True)
     else:
         path.chmod(0o700)
+        preserve_desktop_owner(path)

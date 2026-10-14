@@ -28,3 +28,6 @@ AGENTS.md
 /measurement-output/
 Pingo-pair-*/
 pingo-trace*.jsonl
+.DS_Store
+*.app/
+*.dmg

@@ -3,6 +3,7 @@
 import ipaddress
 import socket
 import struct
+import sys
 
 from .crypto import MAX_WIRE, PacketError
 
@@ -47,10 +48,15 @@ def decode(packet: bytes, peer: str) -> bytes:
 class RawICMP:
     def __init__(self, peer: str, bind: str = "0.0.0.0"):
         self.peer = str(ipaddress.IPv4Address(peer))
+        self.capture = None
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
         try:
             self.socket.bind((str(ipaddress.IPv4Address(bind)), 0))
             self.socket.settimeout(0.2)
+            if sys.platform == "darwin":
+                from .macos import MacCapture
+
+                self.capture = MacCapture(self.peer, bind)
         except BaseException:
             self.socket.close()
             raise
@@ -62,6 +68,8 @@ class RawICMP:
         self.socket.sendto(packet, (self.peer, 0))
 
     def recv(self, timeout: float = 0.2) -> bytes | None:
+        if self.capture is not None:
+            return self.capture.recv(timeout)
         self.socket.settimeout(timeout)
         try:
             packet, address = self.socket.recvfrom(65535)
@@ -72,4 +80,6 @@ class RawICMP:
             return None
 
     def close(self) -> None:
+        if self.capture is not None:
+            self.capture.close()
         self.socket.close()

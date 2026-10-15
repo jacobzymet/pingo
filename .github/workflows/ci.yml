@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.13'
+          python-version: '3.13.16'
       - name: Native build dependencies
         run: |
           if [ "$(uname -m)" = x86_64 ]; then

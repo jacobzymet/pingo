@@ -13,7 +13,7 @@ from . import __version__
 from .config import Config, generate_key
 from .direct import CHUNK, END, send_file, send_message
 from .icmp import RawICMP
-from .reconnect import Connector
+from .reconnect import Connector, recoverable
 from .reliable import Reliable
 from .resume import RESUME, ResumableReceiver, send_resumable
 from .traffic import TracedCarrier, Traffic
@@ -162,9 +162,9 @@ def run_listener(factory, config, args, stop, events=None):
                     while not stop.wait(0.2):
                         endpoint.check()
                     return
-            except (OSError, RuntimeError):
+            except (OSError, RuntimeError) as exc:
                 receiver.suspend()
-                if failure == args.reconnects:
+                if not recoverable(exc) or failure == args.reconnects:
                     raise
                 if stop.wait(min(0.5 * 2 ** min(failure, 5), 10)):
                     return
@@ -261,8 +261,8 @@ def run_vpn(factory, config, args, stop, traffic, events=None):
                     events("state", state="connected")
                     vpn.run(stop)
                     return
-            except (ConnectionError, TimeoutError):
-                if failure == args.reconnects:
+            except OSError as exc:
+                if not recoverable(exc) or failure == args.reconnects:
                     raise
                 delay = min(0.5 * 2 ** min(failure, 5), 10)
                 logging.warning("VPN peer unavailable; reconnecting in %.1fs", delay)
@@ -292,6 +292,7 @@ def main(argv=None, events=None, stop=None):
             print(json.dumps({"message": fields["text"]}), flush=True)
 
     previous = {}
+    traffic = None
 
     def halt(*_):
         stop.set()
@@ -376,5 +377,7 @@ def main(argv=None, events=None, stop=None):
         logging.error("%s", exc)
         return 1
     finally:
+        if traffic is not None:
+            traffic.close()
         for sig, handler in previous.items():
             signal.signal(sig, handler)

@@ -260,16 +260,18 @@ resumable files also retain their content identity and completion state.
 
 ## Live traffic
 
-All network commands emit one flushed JSON record per sent/received Pingo wire
-packet on stderr: timestamps, direction, byte counts, cumulative totals,
-throughput, and complete encrypted payloads as hex. Handshakes, keepalives,
+Network commands queue JSON records for sent/received Pingo wire packets on stderr:
+timestamps, direction, byte counts, cumulative totals, throughput, and complete
+encrypted payloads as hex. Handshakes, keepalives,
 fragments and acknowledgments are included. VPN commands also emit TUN metadata:
 addresses, protocol, congestion window and RTT. Keys and decrypted TUN payloads
 are not dumped. Counters are per layer/direction and exclude outer headers.
 
 `--traffic hex` is the default. `--traffic summary` omits hex; `--traffic off`
-disables packet output. Records are immediate, without sampling or batching;
-a slow terminal or pipe can reduce throughput. Results/messages remain on stdout;
+disables packet output. A bounded background writer flushes records without blocking networking.
+When output falls behind, records are dropped rather than accumulating unbounded
+memory; the next retained record reports `dropped_since_last`. Normal shutdown
+allows up to one second to drain the queue. A crash may lose buffered records. Results/messages remain on stdout;
 diagnostics share stderr with traffic JSON. Treat captured traces as sensitive.
 
 ## IPv4 VPN

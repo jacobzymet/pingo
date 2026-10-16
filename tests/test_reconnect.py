@@ -1,3 +1,4 @@
+import errno
 import threading
 
 import pytest
@@ -80,3 +81,54 @@ def test_messages_are_never_automatically_replayed_after_ambiguous_failure():
     )()
     with pytest.raises(RemoteError):
         connector.send(b"message")
+
+
+
+def test_connector_retries_socket_factory_failure():
+    stop = ImmediateStop()
+    attempts = []
+    peers = []
+
+    def factory():
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise OSError(errno.ENETDOWN, "temporary network outage")
+        a, b = carriers()
+        client, server = Endpoint(a, KEY), Endpoint(b, KEY)
+        peers.append(server)
+        server.start(responder=True)
+        return client
+
+    connector = Connector(factory, stop, attempts=4, timeout=0.02, reconnects=1)
+    try:
+        connector.connect()
+        assert len(attempts) == 2
+        assert stop.delays == [0.5]
+        assert connector.endpoint.ready.is_set()
+    finally:
+        connector.close()
+        for peer in peers:
+            peer.close()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PermissionError("raw socket needs privileges"),
+        FileNotFoundError(errno.ENOENT, "required runtime missing"),
+        ValueError("invalid configuration"),
+        RuntimeError("programming error"),
+    ],
+)
+def test_connector_does_not_retry_permanent_factory_error(error):
+    attempts = []
+    stop = ImmediateStop()
+
+    def factory():
+        attempts.append(1)
+        raise error
+
+    with pytest.raises(type(error)):
+        Connector(factory, stop, reconnects=3).connect()
+    assert len(attempts) == 1
+    assert stop.delays == []

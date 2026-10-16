@@ -1,6 +1,7 @@
 import io
 import json
 import threading
+import time
 
 import pytest
 
@@ -30,6 +31,7 @@ def test_live_wire_hex_and_flush_for_every_packet():
     wrapped.send(b"ciphertext")
     b.send(b"reply")
     assert wrapped.recv(0.01) == b"reply"
+    traffic.close()
     events = [json.loads(line) for line in stream.getvalue().splitlines()]
     assert [event["direction"] for event in events] == ["tx", "rx"]
     assert bytes.fromhex(events[0]["wire_hex"]) == b"ciphertext"
@@ -41,8 +43,12 @@ def test_live_wire_hex_and_flush_for_every_packet():
 
 def test_summary_hides_wire_and_tun_payload_and_off_emits_nothing():
     stream = FlushedStream()
-    Traffic("summary", stream).packet("tx", b"private", "peer")
-    Traffic("hex", stream).packet("tx", b"private", "peer", layer="tun")
+    summary = Traffic("summary", stream)
+    summary.packet("tx", b"private", "peer")
+    summary.close()
+    hex_traffic = Traffic("hex", stream)
+    hex_traffic.packet("tx", b"private", "peer", layer="tun")
+    hex_traffic.close()
     Traffic("off", stream).packet("tx", b"private", "peer")
     assert len(stream.getvalue().splitlines()) == 2
     assert "private" not in stream.getvalue() and "wire_hex" not in stream.getvalue()
@@ -96,3 +102,50 @@ def test_vpn_congestion_frames_reach_tun_and_ack():
         client.send(IP_DATA + seq.to_bytes(8, "big") + packet)
         assert b.received.wait(1) and acknowledged.wait(1)
         assert b.written == [packet] and not sender.congestion.pending
+
+
+
+def test_blocked_telemetry_drops_bounded_records_without_blocking_network():
+    class SlowStream(FlushedStream):
+        def __init__(self):
+            super().__init__()
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def write(self, data):
+            self.entered.set()
+            if not self.release.wait(3):
+                raise OSError("slow output timed out")
+            return super().write(data)
+
+    stream = SlowStream()
+    traffic = Traffic("hex", stream, max_pending=2)
+    try:
+        traffic.packet("tx", b"one", "peer")
+        assert stream.entered.wait(1)
+        started = time.monotonic()
+        for _ in range(100):
+            traffic.packet("tx", b"packet", "peer")
+        assert time.monotonic() - started < 0.5
+        assert traffic.dropped > 0
+    finally:
+        stream.release.set()
+        traffic.close()
+
+
+def test_broken_telemetry_does_not_interrupt_packet_delivery():
+    class BrokenStream(FlushedStream):
+        def flush(self):
+            raise BrokenPipeError("log consumer closed")
+
+    traffic = Traffic("summary", BrokenStream())
+    try:
+        traffic.packet("tx", b"first", "peer")
+        deadline = time.monotonic() + 1
+        while traffic.write_error is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert isinstance(traffic.write_error, BrokenPipeError)
+        traffic.packet("rx", b"second", "peer")  # Must not raise.
+        assert traffic.dropped >= 2
+    finally:
+        traffic.close()

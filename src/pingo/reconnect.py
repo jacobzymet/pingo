@@ -1,5 +1,6 @@
 """Reconnect supervisors never retry ambiguous message operations automatically."""
 
+import errno
 import logging
 
 from .reliable import Reliable, RemoteError
@@ -20,8 +21,9 @@ class Connector:
         for failure in range(self.reconnects + 1):
             if self.stop.is_set():
                 raise InterruptedError("connection cancelled")
-            endpoint = self.factory()
+            endpoint = None
             try:
+                endpoint = self.factory()
                 self.on_event("state", state="connecting")
                 channel = Reliable(
                     endpoint, attempts=self.attempts, timeout=self.timeout, stop=self.stop
@@ -32,7 +34,8 @@ class Connector:
                 self.on_event("state", state="connected")
                 return
             except BaseException as exc:
-                endpoint.close()
+                if endpoint is not None:
+                    endpoint.close()
                 if not recoverable(exc) or failure == self.reconnects:
                     raise
                 delay = min(0.5 * 2 ** min(failure, 5), 10)
@@ -61,7 +64,30 @@ class Connector:
         self.close()
 
 
+# Retry temporary network failures, not permanent setup or application errors.
+_TRANSIENT_ERRNOS = {
+    errno.EAGAIN,
+    errno.EINTR,
+    errno.ENOBUFS,
+    errno.ECONNABORTED,
+    errno.ECONNREFUSED,
+    errno.ECONNRESET,
+    errno.ENETDOWN,
+    errno.ENETUNREACH,
+    errno.EHOSTUNREACH,
+    errno.EPIPE,
+    errno.ETIMEDOUT,
+    errno.EIO,  # Capture devices can disappear during interface changes.
+}
+# Native Windows socket error numbers may not be translated to POSIX errno.
+_TRANSIENT_ERRNOS.update({10004, 10035, 10050, 10051, 10052, 10053, 10054, 10055, 10060, 10061, 10065})
+
+
 def recoverable(error):
-    return isinstance(error, (OSError, RuntimeError)) and not isinstance(
-        error, (RemoteError, InterruptedError, PermissionError)
-    )
+    if isinstance(error, (RemoteError, InterruptedError, PermissionError)):
+        return False
+    if isinstance(error, (ConnectionError, TimeoutError)):
+        return True
+    if isinstance(error, OSError):
+        return error.errno is None or error.errno in _TRANSIENT_ERRNOS
+    return False

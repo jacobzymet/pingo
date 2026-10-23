@@ -420,6 +420,7 @@
   }
   function showView(name) {
     state.view = name;
+    document.body.dataset.view = name;
     document.querySelectorAll(".view").forEach((el) => {
       el.hidden = el.id !== `view-${name}`;
     });
@@ -573,6 +574,27 @@
     await poll();
   }
   function bind() {
+    document.addEventListener("keydown", (event) => {
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey ||
+        event.shiftKey ||
+        event.isComposing ||
+        $("connection-dialog").open
+      )
+        return;
+      const views = { 1: "direct", 2: "vpn", 3: "check" };
+      const view = views[event.key];
+      const command = { n: "new-connection", o: "import-connection" }[
+        event.key.toLowerCase()
+      ];
+      if (!view && !command) return;
+      event.preventDefault();
+      if (view) {
+        showView(view);
+        document.querySelector(`[data-view="${view}"]`).focus();
+      } else if (!$(command).disabled) $(command).click();
+    });
     document.querySelectorAll("[data-view]").forEach((b) => {
       b.onclick = () => showView(b.dataset.view);
     });
@@ -710,8 +732,10 @@
           (def || kill === "on") &&
           !confirm(
             "This VPN can change routes and block outside traffic. " +
-            (state.platform === "darwin" ? "The macOS kill switch also resets existing PF connections. " : "") +
-            "If it fails, protection stays active; use Settings to restore connectivity. Continue?",
+              (state.platform === "darwin"
+                ? "The macOS kill switch also resets existing PF connections. "
+                : "") +
+              "If it fails, protection stays active; use Settings to restore connectivity. Continue?",
           )
         )
           return;

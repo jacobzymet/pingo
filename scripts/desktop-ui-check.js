@@ -112,6 +112,10 @@ async (page) => {
   await page.getByRole("status").filter({ hasText: "Setup needed" }).waitFor();
   if (await page.locator("#view-direct").isVisible())
     throw Error("Unconfigured actions were visible");
+  await page.keyboard.press("Control+3");
+  if (!(await page.locator("#view-check").isVisible()))
+    throw Error("Settings were unavailable before adding a connection");
+  await page.keyboard.press("Control+1");
   await page.setViewportSize({ width: 1180, height: 850 });
   await page.screenshot({
     path: "output/playwright/desktop-welcome.png",
@@ -136,6 +140,8 @@ async (page) => {
     .getByRole("button", { name: "Save connection", exact: true })
     .click();
   await page.locator("#connection-dialog").waitFor({ state: "hidden" });
+  if (await page.locator("#trace").isVisible())
+    throw Error("Packet trace should start collapsed");
   if (
     !(await page
       .getByRole("button", { name: "Send message", exact: true })
@@ -235,6 +241,7 @@ async (page) => {
   await page
     .getByRole("button", { name: "Send & receive", exact: true })
     .click();
+  await page.locator(".trace-summary").click();
   await page
     .getByRole("button", { name: "Pause display", exact: true })
     .click();
@@ -291,6 +298,12 @@ async (page) => {
     throw Error("Switching tabs lost the draft");
   await page.setViewportSize({ width: 1180, height: 850 });
   await page.evaluate(() => window.scrollTo(0, 0));
+  if (
+    await page.evaluate(
+      () => document.documentElement.scrollHeight > window.innerHeight,
+    )
+  )
+    throw Error("Desktop workspace scrolls the document");
   await page.screenshot({
     path: "output/playwright/desktop-configured.png",
     fullPage: true,
@@ -318,5 +331,13 @@ async (page) => {
   await page.getByRole("dialog").waitFor();
   await page.screenshot({ path: "output/playwright/desktop-setup.png" });
   await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+n");
+  await page.getByRole("dialog").waitFor();
+  if (
+    (await page.locator("#connection-dialog-title").textContent()).trim() !==
+    "Add a connection"
+  )
+    throw Error("New connection shortcut opened the wrong dialog");
+  await page.keyboard.press("Escape");
   return "Passed: guided setup, UTF-8 limits, keyboard send and tabs, draft preservation, safe message rendering, file progress, receive/stop, concurrency, diagnostics, VPN defaults, frozen trace filtering, hex, collapse, keyboard dialog, 3 viewport sizes.";
-}
+};

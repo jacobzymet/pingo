@@ -813,7 +813,7 @@ def main(argv=None):
             width=1180,
             height=900,
             min_size=(760, 620),
-            background_color="#f7f6f3",
+            background_color="#f3f4f6",
             text_select=True,
         )
         desktop.window = window

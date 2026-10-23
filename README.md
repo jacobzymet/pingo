@@ -73,10 +73,13 @@ see the VPN instructions below. Ordinary stop/window close waits for cleanup.
 Failures may retain protection; **Settings → Restore connectivity after a VPN failure → Remove retained protection**
 restores ordinary traffic. Hard termination has the same limitations as the CLI.
 
-Use **Ctrl+Enter** to send a message. Drafts and selected files remain when switching
-action tabs. The message composer shows its UTF-8 byte count and prevents oversized sends.
+Use **Ctrl+1/2/3** to switch workspaces, **Ctrl+N** to add a connection, and
+**Ctrl+O** to import one (use **Command** on macOS). Use **Ctrl+Enter** to send a message.
+Drafts and selected files remain when switching action tabs. The message composer
+shows its UTF-8 byte count and prevents oversized sends.
 
-Hex is displayed by default. The packet panel can collapse. Pausing freezes the displayed
+Packet trace starts collapsed; expand it to inspect packets with hex enabled by default.
+Pausing freezes the displayed
 packets for filtering and hex inspection; it does not pause networking or packet
 collection. The interface displays the latest 120 packets; trace exports include
 up to 2,000 recent packet/activity records. Export is a bounded snapshot, not an

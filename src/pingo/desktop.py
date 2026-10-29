@@ -8,7 +8,6 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import threading
@@ -20,6 +19,7 @@ from pathlib import Path
 from . import __version__
 from .config import Config, generate_key
 from .diagnostics import address_checks, local_network_checks, storage_checks, vpn_checks
+from .interfaces import local_ipv4
 from .permissions import desktop_owner, private_directory, private_file
 
 PROFILE_FIELDS = {
@@ -185,17 +185,24 @@ class Desktop:
         self.metrics = {}
         self.recovery_table = ""
         self.monitor = None
-        try:
-            self.local_addresses = sorted(
-                {
-                    item[4][0]
-                    for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
-                    if not ipaddress.IPv4Address(item[4][0]).is_loopback
-                }
-            )
-        except OSError:
-            self.local_addresses = []
+        self.interfaces = []
+        self.local_addresses = []
+        self.interfaces_error = ""
+        self.refresh_addresses()
         self._load()
+
+    def refresh_addresses(self):
+        try:
+            interfaces = local_ipv4()
+            self.interfaces = interfaces
+            self.local_addresses = sorted({r["address"] for r in interfaces if not r["loopback"]})
+            self.interfaces_error = ""
+        except (OSError, RuntimeError) as exc:
+            self.interfaces_error = (
+                f"Could not refresh addresses: {exc}. Displayed entries may be old."
+            )
+        self.interfaces_checked = time.monotonic()
+        return {"interfaces": self.interfaces, "error": self.interfaces_error}
 
     def _load(self):
         path = self.root / "connections.json"
@@ -275,6 +282,8 @@ class Desktop:
     def snapshot(self, after=0):
         after = max(0, int(after))
         with self.lock:
+            if time.monotonic() - self.interfaces_checked > 10:
+                self.refresh_addresses()
             first = self.events[0]["seq"] if self.events else self.sequence + 1
             return {
                 "version": __version__,
@@ -288,6 +297,8 @@ class Desktop:
                 "metrics": dict(self.metrics),
                 "recovery_table": self.recovery_table,
                 "local_addresses": self.local_addresses,
+                "interfaces": self.interfaces,
+                "interfaces_error": self.interfaces_error,
             }
 
     def save_profile(self, data):
@@ -734,6 +745,11 @@ class Api:
     @bridge_action
     def check_setup(self, identifier):
         return self._desktop.check(identifier)
+
+    @bridge_action
+    def refresh_addresses(self):
+        with self._desktop.lock:
+            return self._desktop.refresh_addresses()
 
     @bridge_action
     def start(self, identifier, action, payload=None):

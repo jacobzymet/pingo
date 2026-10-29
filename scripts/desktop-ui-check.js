@@ -14,6 +14,12 @@ async (page) => {
     let checks = defaultChecks;
     window.fixtureChecks = (value) => { checks = value || defaultChecks; };
     window.fixtureStarts = [];
+    const interfaces = [
+      { name: "Ethernet", address: "192.168.1.10", up: true },
+      { name: "Wi-Fi", address: "10.0.0.10", up: false },
+      { name: "Work VPN", address: "10.77.0.1", up: true },
+      { name: "Loopback", address: "127.0.0.1", up: true, loopback: true },
+    ];
     const emit = (event) =>
       events.push({ ...event, seq: ++seq, at: Date.now() / 1000 });
     const ok = (data) => ({ ok: true, data });
@@ -35,9 +41,11 @@ async (page) => {
             missed: 0,
             metrics: {},
             local_addresses: ["192.0.2.10"],
+            interfaces,
             recovery_table: "",
           }),
         create_key: async () => ok("C:\\Pingo-test\\peer.key"),
+        refresh_addresses: async () => ok({ interfaces, error: "" }),
         choose: async (kind) =>
           ok(kind === "file" ? "C:\\Pingo-test\\sample.zip" : null),
         save_connection: async (data) => {
@@ -109,6 +117,13 @@ async (page) => {
   });
   await page.goto("http://127.0.0.1:8766/");
   await page.getByRole("status").filter({ hasText: "Setup needed" }).waitFor();
+  if ((await page.locator(".address-row").count()) !== 4)
+    throw Error("Missing adapter addresses");
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByRole("button", { name: "Use 10.77.0.1 on Work VPN" }).click();
+  if ((await page.locator("#profile-bind").inputValue()) !== "10.77.0.1")
+    throw Error("Adapter address did not fill setup");
+  await page.keyboard.press("Escape");
   if (await page.locator("#view-direct").isVisible())
     throw Error("Unconfigured actions were visible");
   await page.keyboard.press("Control+3");
@@ -139,6 +154,8 @@ async (page) => {
     .getByRole("button", { name: "Save connection", exact: true })
     .click();
   await page.locator("#connection-dialog").waitFor({ state: "hidden" });
+  if (await page.locator("#local-network").evaluate((element) => element.open))
+    throw Error("Address inventory should collapse after setup");
   await page.locator("#health-title").filter({ hasText: "1 setup warning" }).waitFor();
   if (await page.locator("#trace").isVisible())
     throw Error("Packet trace should start collapsed");
@@ -224,6 +241,7 @@ async (page) => {
     window.fixtureJob({ state: "stopped", running: false }),
   );
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.locator("#setup-results summary").click();
   await page
     .getByRole("button", { name: "Run setup check", exact: true })
     .click();

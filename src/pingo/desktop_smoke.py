@@ -102,6 +102,7 @@ def run(result_path):
             )
             window.evaluate_js(
                 "document.querySelector('[data-view=check]').click(); "
+                "document.getElementById('setup-results').open=true; "
                 "document.getElementById('run-check').click()"
             )
             wait_for("document.querySelectorAll('.check-row').length >= 5")

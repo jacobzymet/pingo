@@ -183,6 +183,21 @@ def test_setup_checks_cannot_run_during_an_activity(desktop):
     assert not response["ok"] and "Stop the current activity" in response["error"]
 
 
+def test_address_refresh_updates_snapshot_and_retains_old_rows_on_error(desktop, monkeypatch):
+    rows = [{"name": "VPN", "address": "10.77.0.1", "loopback": False, "up": True}]
+    monkeypatch.setattr("pingo.desktop.local_ipv4", lambda: rows)
+    assert Api(desktop).refresh_addresses()["data"]["interfaces"] == rows
+    snapshot = desktop.snapshot()
+    assert snapshot["interfaces"] == rows and snapshot["local_addresses"] == ["10.77.0.1"]
+
+    def failed():
+        raise OSError("adapter changed")
+
+    monkeypatch.setattr("pingo.desktop.local_ipv4", failed)
+    result = Api(desktop).refresh_addresses()["data"]
+    assert result["interfaces"] == rows and "may be old" in result["error"]
+
+
 def test_pythonw_gui_uses_console_interpreter_for_worker(desktop, monkeypatch):
     monkeypatch.setattr("pingo.desktop.sys.platform", "win32")
     monkeypatch.setattr("pingo.desktop.sys.executable", "C:/Python/pythonw.exe")

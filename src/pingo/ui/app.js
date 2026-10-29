@@ -23,6 +23,7 @@
     checks: null,
     launching: false,
     checkRequest: 0,
+    interfaceSignature: "",
   };
   const labels = {
     idle: "Ready",
@@ -146,6 +147,9 @@
       p?.receive_dir || "Pingo’s private receive folder";
     $("receive-folder").title = p?.receive_dir || "";
     $("connection-health").hidden = !p || state.view === "check";
+    document.querySelectorAll(".address-row button").forEach((button) => {
+      button.disabled = busy || button.dataset.unusable === "true";
+    });
     $("receive-copy").textContent =
       running && state.job.action === "listen"
         ? "Listening for messages and files. Keep this window open."
@@ -253,6 +257,7 @@
         $("connection-select").add(new Option(p.name, p.id));
       $("connection-select").value = selected || "";
       loadVpn();
+      if (selected && before !== selected) $("local-network").open = false;
       state.checks = null;
       state.checkRequest++;
       $("peer-test-result").textContent =
@@ -451,6 +456,9 @@
       updateProfiles(s.profiles, s.selected);
       state.platform = s.platform;
       state.localAddresses = s.local_addresses || [];
+      renderAddresses(s.interfaces || state.localAddresses.map((address) => ({
+        name: "Network adapter", address, up: null,
+      })), s.interfaces_error || "");
       $("version").textContent = `Pingo ${s.version}`;
       $("permission-banner").hidden = s.elevated;
       $("elevate").hidden = s.platform !== "win32";
@@ -511,6 +519,51 @@
       check: "Check this computer or restore network access.",
     }[name];
     renderControls();
+  }
+  function renderAddresses(interfaces, error = "") {
+    const signature = JSON.stringify([interfaces, error, profile()?.bind]);
+    if (signature === state.interfaceSignature) return;
+    state.interfaceSignature = signature;
+    const primary = interfaces.find((i) => i.address === profile()?.bind) ||
+      interfaces.find((i) => i.up && !i.loopback);
+    $("address-title").textContent = primary
+      ? `This computer · ${primary.address}` : "This computer’s IPv4 addresses";
+    $("address-count").textContent = `${interfaces.length} address${interfaces.length === 1 ? "" : "es"}`;
+    $("address-note").textContent = error ||
+      "Choose an address reachable from your peer. “Use” fills in this computer’s address.";
+    const fragment = document.createDocumentFragment();
+    for (const adapter of interfaces) {
+      const row = document.createElement("div"),
+        info = document.createElement("div"),
+        name = document.createElement("strong"),
+        address = document.createElement("code"),
+        detail = document.createElement("small"),
+        use = document.createElement("button");
+      row.className = "address-row";
+      name.textContent = adapter.name;
+      address.textContent = adapter.address;
+      detail.textContent = adapter.loopback ? "Local only" : adapter.up === false
+        ? "Adapter down" : adapter.link_local ? "Link-local" : adapter.up ? "Active" : "Status unknown";
+      use.textContent = "Use";
+      use.className = "small-button";
+      use.setAttribute("aria-label", `Use ${adapter.address} on ${adapter.name}`);
+      use.disabled = adapter.loopback || adapter.up === false || state.job.running || state.launching;
+      use.dataset.unusable = Boolean(adapter.loopback || adapter.up === false);
+      use.onclick = () => {
+        if (state.job.running || state.launching) return;
+        connectionDialog(Boolean(profile()));
+        $("profile-bind").value = adapter.address;
+      };
+      info.append(name, address, detail);
+      row.append(info, use);
+      fragment.append(row);
+    }
+    if (!interfaces.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "No assigned IPv4 addresses found. Connect to a network and refresh.";
+      fragment.append(empty);
+    }
+    $("machine-addresses").replaceChildren(fragment);
   }
   function showTask(name, focus = false) {
     state.task = name;
@@ -653,6 +706,7 @@
           (kind === "listen" || !c.name.startsWith("Receive")),
         );
         if (failures.length) {
+          $("setup-results").open = true;
           showView("check");
           throw {
             message: "Fix the failed setup checks before starting.",
@@ -674,6 +728,10 @@
     }
   }
   function bind() {
+    $("refresh-addresses").onclick = () => action($("refresh-addresses"), async () => {
+      const result = await api("refresh_addresses");
+      renderAddresses(result.interfaces, result.error);
+    });
     document.addEventListener("keydown", (event) => {
       if (
         !(event.ctrlKey || event.metaKey) ||
@@ -863,7 +921,10 @@
       });
     };
     $("run-check").onclick = () => action($("run-check"), refreshChecks);
-    $("review-checks").onclick = () => showView("check");
+    $("review-checks").onclick = () => {
+      $("setup-results").open = true;
+      showView("check");
+    };
     $("test-peer").onclick = () => action($("test-peer"), () => start("probe"));
     $("unlock").onclick = () =>
       action($("unlock"), async () => {

@@ -33,6 +33,18 @@ The existing CLI and full packet hex dumps remain available. The desktop include
 saved connections, native file pickers, shared-key generation, matching peer setup
 export, messages, resumable file progress, VPN controls, setup checks, and recovery.
 
+The interface follows your system's light/dark preference. Send, File and Receive
+share one focused workspace; activity appears below it, with packet details and
+setup diagnostics collapsed until needed.
+
+**This computer** shows a local IPv4 and the total address count. Expand it to see
+every assigned IPv4 on Ethernet, Wi-Fi, VPN, virtual, and loopback adapters, including
+multiple addresses per adapter. Adapter names and status come from the OS. Down and
+link-local addresses remain visible with labels; they are not reachability guarantees.
+Addresses refresh every ten seconds, or with **Refresh**. **Use** fills the connection
+form's local address without saving it. Adapters without an assigned IPv4 have no
+IPv4 to display. This list does not discover your router's public/NAT address.
+
 On Windows, open **`Start Pingo.cmd`** from this checkout. It uses the portable
 build if present; otherwise it sets up the Python environment and desktop dependencies.
 The first source launch needs Python 3.11+ and Internet access for installation.

@@ -145,6 +145,14 @@
         </section>
         <div class="workbench">
           <div class="primary-pane">
+            <details id="local-network" class="local-network" open>
+              <summary><span id="address-title">This computer’s IPv4 addresses</span> <span id="address-count"></span></summary>
+              <div class="address-heading">
+                <p id="address-note">Choose an address reachable from your peer. “Use” fills in this computer’s address.</p>
+                <button id="refresh-addresses" class="small-button">Refresh</button>
+              </div>
+              <div id="machine-addresses" class="local-addresses" aria-live="polite"></div>
+            </details>
             <section id="welcome" class="welcome">
               <div class="welcome-intro">
                 <svg
@@ -168,28 +176,7 @@
                   >Have a configuration? Choose Import in the sidebar.</span
                 >
               </div>
-              <ol class="setup-steps">
-                <li>
-                  <strong>Add the other computer</strong
-                  ><span
-                    >Enter its IPv4 address and generate a shared key.</span
-                  >
-                </li>
-                <li>
-                  <strong>Share its setup privately</strong
-                  ><span
-                    >Export a matching configuration and key for your
-                    peer.</span
-                  >
-                </li>
-                <li>
-                  <strong>Receive, then send</strong
-                  ><span
-                    >Start receiving on one computer and send from the
-                    other.</span
-                  >
-                </li>
-              </ol>
+
             </section>
             <section id="connection-health" class="connection-health" role="status" hidden>
               <div>
@@ -498,7 +485,8 @@
               aria-label="Setup and recovery"
               hidden
             >
-              <section class="card">
+              <details id="setup-results" class="card setup-results">
+                <summary>Local setup checks</summary>
                 <div class="card-heading">
                   <div>
                     <h2>Check before connecting</h2>
@@ -516,7 +504,7 @@
                     Add a connection, then run the setup check.
                   </p>
                 </div>
-              </section>
+              </details>
               <section class="card">
                 <h2>Test peer connection</h2>
                 <p class="muted">
@@ -602,7 +590,6 @@
                 </p>
               </details>
             </section>
-          </div>
           <aside
             id="inspection"
             class="inspection"
@@ -678,6 +665,7 @@
               </p>
             </details>
           </aside>
+          </div>
         </div>
       </main>
       <footer class="app-footer">

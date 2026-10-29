@@ -20,7 +20,7 @@ def assets(root):
     if python_license is None:
         raise RuntimeError("Python's LICENSE.txt must be available for a release build")
     files.append((str(python_license), "licenses/python"))
-    pending, seen = ["noiseprotocol", "cryptography", "pywebview", "pyinstaller"], set()
+    pending, seen = ["noiseprotocol", "cryptography", "psutil", "pywebview", "pyinstaller"], set()
     while pending:
         metadata = distribution(pending.pop())
         name = metadata.metadata["Name"]

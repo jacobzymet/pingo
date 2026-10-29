@@ -1,4 +1,4 @@
-"""Opt-in native WebView smoke check; uses test storage and never opens networking."""
+"""Opt-in native WebView smoke check; uses test storage and never sends network packets."""
 
 import json
 import subprocess

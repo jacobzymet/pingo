@@ -59,8 +59,12 @@ tab is needed. The native bridge exposes fixed actions, not arbitrary commands.
    **Set up other computer** writes a new folder containing `peer.toml`, `peer.key`,
    and instructions. Transfer that folder privately through a separate trusted
    channel, then choose **Import** on the other computer.
-3. Run **Settings → Run setup check**. Allow inbound ICMP echo requests
-   from each peer on both computers. Local checks do not prove the peer is reachable.
+3. Review the automatic local setup checks, or rerun **Settings → Run setup check**
+   after changing networks. Allow inbound IPv4 ICMP echo requests (type 8) from each
+   peer on both computers, scoped to the peer address and active firewall profile.
+   Keep the firewall enabled. Start **Receive** on the other computer, then use
+   **Settings → Test peer connection** to verify an authenticated direct-mode
+   handshake. Local checks alone do not prove the peer is reachable.
 4. Use **Reopen as Administrator** for network actions on Windows. Open the **Receive**
    tab and start receiving on one computer, then use **Message** or **File** on the other. Stop before switching
    tasks. The desktop enforces one activity per window; run only one Pingo instance
@@ -77,6 +81,28 @@ Use **Ctrl+1/2/3** to switch workspaces, **Ctrl+N** to add a connection, and
 **Ctrl+O** to import one (use **Command** on macOS). Use **Ctrl+Enter** to send a message.
 Drafts and selected files remain when switching action tabs. The message composer
 shows its UTF-8 byte count and prevents oversized sends.
+
+Setup checks run automatically when selecting/saving a connection and before a
+network action. They check the configured addresses, local route/source selection,
+actual ICMP socket/capture access, receive-folder writability and free disk space,
+plus common VPN configuration conflicts. They do not send packets, change routes,
+or modify firewalls. VPN-only failures do not block messages/files. Example IPv4s,
+private networks, carrier NAT and link-local addresses have specific guidance;
+private addresses are not rejected because they can work on a shared LAN.
+
+**Test peer connection** sends only Pingo's authenticated handshake; it does not
+deliver a message/file, create a tunnel or change routes. It tests direct mode:
+the other computer must be Receiving, not running a VPN responder. It is bounded
+to three attempts per handshake stage, up to one second each, without automatic
+reconnection. Like any new confirmed session, it replaces the peer's current
+session: stop other sends first and run one instance per endpoint/key. Success
+verifies the key/protocol and small ICMP packets in both directions at that time;
+it does not verify larger transfers, VPN routing or an Internet exit.
+
+Settings' **What can stop a real connection?** explains NAT, guest Wi-Fi isolation,
+DHCP address changes, other VPNs, ICMP inspection/rate limits, MTU, sleep, quotas,
+and recovery. Pingo does not infer remote firewall rules or NAT reachability from
+a successful local check or ordinary ping.
 
 Packet trace starts collapsed; expand it to inspect packets with hex enabled by default.
 Pausing freezes the displayed
@@ -208,6 +234,7 @@ Start the receiver on B in an elevated PowerShell:
 Send from A in another elevated terminal:
 
 ```powershell
+.\.venv\Scripts\python.exe -m pingo probe --config local-a.toml
 .\.venv\Scripts\python.exe -m pingo message --config local-a.toml "Hello through ICMP"
 .\.venv\Scripts\python.exe -m pingo file --config local-a.toml .\example.zip
 ```

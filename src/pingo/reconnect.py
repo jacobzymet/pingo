@@ -80,7 +80,9 @@ _TRANSIENT_ERRNOS = {
     errno.EIO,  # Capture devices can disappear during interface changes.
 }
 # Native Windows socket error numbers may not be translated to POSIX errno.
-_TRANSIENT_ERRNOS.update({10004, 10035, 10050, 10051, 10052, 10053, 10054, 10055, 10060, 10061, 10065})
+_TRANSIENT_ERRNOS.update(
+    {10004, 10035, 10050, 10051, 10052, 10053, 10054, 10055, 10060, 10061, 10065}
+)
 
 
 def recoverable(error):

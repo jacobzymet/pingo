@@ -776,7 +776,7 @@ body[data-view="check"] #inspection {
   border-top: 1px solid var(--line);
 }
 .check-badge {
-  font: 600 10px var(--mono);
+  font: 600 11px var(--mono);
   text-transform: uppercase;
   align-self: start;
   border-radius: 4px;
@@ -792,6 +792,50 @@ body[data-view="check"] #inspection {
 .check-badge[data-status="fail"] {
   background: #fff0ef;
   color: var(--danger);
+}
+.check-badge[data-status="warn"] {
+  background: #fff7e4;
+  color: #806429;
+}
+.connection-health {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.connection-health p {
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+.connection-health[data-status="fail"] strong {
+  color: var(--danger);
+}
+.connection-health[data-status="warn"] strong {
+  color: #806429;
+}
+.connection-health button {
+  flex-shrink: 0;
+}
+.network-guide ul {
+  padding-inline-start: 20px;
+}
+.network-guide li {
+  margin-block: 14px;
+  overflow-wrap: anywhere;
+}
+#peer-test-result {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#view-check .muted,
+#view-check .check-row p,
+.connection-health p {
+  color: #596273;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .check-row strong {
   font-size: 12px;
@@ -1324,6 +1368,11 @@ summary {
   }
   .card-heading > button {
     margin-left: 0;
+  }
+  .connection-health,
+  #view-check .card-footer {
+    flex-direction: column;
+    align-items: flex-start;
   }
   .notice,
   .toast {

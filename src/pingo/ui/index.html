@@ -191,6 +191,13 @@
                 </li>
               </ol>
             </section>
+            <section id="connection-health" class="connection-health" role="status" hidden>
+              <div>
+                <strong id="health-title">Checking this computer…</strong>
+                <p id="health-detail">Peer reachability has not been tested.</p>
+              </div>
+              <button id="review-checks" class="text-button">Review checks</button>
+            </section>
             <section
               id="operation"
               class="operation"
@@ -496,20 +503,79 @@
                   <div>
                     <h2>Check before connecting</h2>
                     <p class="muted">
-                      Checks this computer. Your peer and firewall still need to
-                      be configured.
+                      Local checks run when you select a connection and before
+                      starting. They do not send packets or prove peer reachability.
                     </p>
                   </div>
                   <button id="run-check" class="secondary" disabled>
                     Run setup check
                   </button>
                 </div>
-                <div id="checks" class="checks">
+                <div id="checks" class="checks" aria-live="polite">
                   <p class="empty">
                     Add a connection, then run the setup check.
                   </p>
                 </div>
               </section>
+              <section class="card">
+                <h2>Test peer connection</h2>
+                <p class="muted">
+                  Start Receive on the other computer, then test from here. This
+                  sends an authenticated ICMP handshake without a message or file.
+                  Stop other sends first: a new session replaces the peer’s current
+                  session. Use one Pingo instance per endpoint/key.
+                </p>
+                <div class="card-footer">
+                  <span id="peer-test-result" class="muted" role="status">
+                    Not tested. This checks direct mode, not a VPN responder or Internet exit.
+                  </span>
+                  <button id="test-peer" class="secondary network-action" disabled>
+                    Test peer connection
+                  </button>
+                </div>
+              </section>
+              <details class="card network-guide">
+                <summary>What can stop a real connection?</summary>
+                <ul>
+                  <li><strong>Firewalls on both computers and routers.</strong>
+                    Allow inbound IPv4 ICMP echo requests (type 8) from the peer
+                    on the active network profile. An app exception or echo-reply
+                    rule alone may not be enough. Keep the firewall enabled.</li>
+                  <li><strong>NAT and isolated Wi-Fi.</strong>
+                    Pingo has no NAT traversal. A router’s public IPv4 and TCP/UDP
+                    port forwarding do not make ICMP reach your computer. Private
+                    addresses need a shared LAN or routed private network. Guest
+                    Wi-Fi, client isolation and carrier NAT can prevent delivery.</li>
+                  <li><strong>Addresses and other VPNs.</strong>
+                    Use each computer’s real outer IPv4, not its Pingo tunnel IP.
+                    DHCP, Wi-Fi changes and another VPN can change addresses or
+                    routes. Update both configurations when an address changes.</li>
+                  <li><strong>Matching peers.</strong>
+                    Use the same shared key and matching Pingo versions. Start
+                    Receive for messages/files, or a VPN responder for VPN mode.
+                    Keep keys private and use one instance per endpoint/key.</li>
+                  <li><strong>Ping is not proof.</strong>
+                    A router or kernel can answer ordinary ping without Pingo
+                    working. Both peers send their own echo requests. ICMP
+                    inspection, rate limits, NAT identifier changes and low path
+                    MTU can break larger transfers even after a handshake succeeds.</li>
+                  <li><strong>Slow or interrupted transfers.</strong>
+                    Direct transfers wait for an acknowledgment for each fragment;
+                    latency and loss limit speed. Keep both computers awake. Files
+                    can resume by sending the same file again; check the receiver
+                    before retrying a failed message to avoid sending it twice.</li>
+                  <li><strong>VPN exits and recovery.</strong>
+                    Use different tunnel IPs on the same subnet, separate from
+                    either LAN. The exit needs forwarding, firewall rules, return
+                    routing or NAT, and working DNS. Default routing covers IPv4.
+                    A kill switch blocks outside traffic, including IPv6, and can
+                    stay active after failure; use recovery below.</li>
+                  <li><strong>Private data and traces.</strong>
+                    Use networks you administer. Received files and partials are
+                    plaintext on disk; protect the receive folder. Trace exports
+                    contain sensitive metadata. Share them privately.</li>
+                </ul>
+              </details>
               <details class="card recovery">
                 <summary>Restore connectivity after a VPN failure</summary>
                 <p>

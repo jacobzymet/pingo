@@ -34,6 +34,7 @@ def parser():
     unlock = commands.add_parser("unlock", help="remove Pingo's retained crash kill switch")
     unlock.add_argument("--table", help="Linux nft table identity printed at startup")
     descriptions = {
+        "probe": "test an authenticated direct-mode handshake (peer must be listening)",
         "listen": "receive messages and files from your peer",
         "message": "send a text message to your peer",
         "file": "send a file, resuming an interrupted transfer",
@@ -261,6 +262,10 @@ def run_vpn(factory, config, args, stop, traffic, events=None):
                     events("state", state="connected")
                     vpn.run(stop)
                     return
+            except InterruptedError:
+                if stop.is_set():
+                    return
+                raise
             except OSError as exc:
                 if not recoverable(exc) or failure == args.reconnects:
                     raise
@@ -269,10 +274,6 @@ def run_vpn(factory, config, args, stop, traffic, events=None):
                 events("state", state="reconnecting", delay=delay, attempt=failure + 1)
                 if stop.wait(delay):
                     return
-            except InterruptedError:
-                if stop.is_set():
-                    return
-                raise
 
 
 def main(argv=None, events=None, stop=None):
@@ -296,7 +297,7 @@ def main(argv=None, events=None, stop=None):
 
     def halt(*_):
         stop.set()
-        if args.command in ("message", "file"):
+        if args.command in ("message", "file", "probe"):
             raise KeyboardInterrupt
 
     try:
@@ -336,7 +337,14 @@ def main(argv=None, events=None, stop=None):
                 persistent=True,
             )
 
-        if args.command == "vpn":
+        if args.command == "probe":
+            with factory() as endpoint:
+                emit("state", state="connecting")
+                endpoint.connect(min(config.attempts, 3), min(config.retry_seconds, 1), stop)
+                emit("peer_verified", peer=config.peer)
+                if not desktop_events:
+                    print("Peer verified: authenticated ICMP handshake with " + config.peer)
+        elif args.command == "vpn":
             run_vpn(factory, config, args, stop, traffic, emit)
         elif args.command == "listen":
             run_listener(factory, config, args, stop, emit)

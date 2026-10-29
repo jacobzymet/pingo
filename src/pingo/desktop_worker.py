@@ -20,7 +20,7 @@ def run():
         argv = request["argv"]
         if not isinstance(argv, list) or not all(isinstance(item, str) for item in argv):
             raise ValueError("invalid desktop request")
-        if not argv or argv[0] not in ("listen", "message", "file", "vpn", "unlock"):
+        if not argv or argv[0] not in ("listen", "message", "file", "vpn", "unlock", "probe"):
             raise ValueError("unsupported desktop operation")
 
         def watch_parent():

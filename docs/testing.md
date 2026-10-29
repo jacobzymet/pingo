@@ -31,6 +31,8 @@ network mode or mount a writable host directory.
 
 The integration suite covers ICMP messages and files, durable transfer resumption,
 TUN delivery, route cleanup, reconnection, crash protection, and targeted unlock.
+It also verifies actual local route/ICMP checks and authenticated peer probes with
+matching and incorrect shared keys, with no application message delivered by a probe.
 
 ## Desktop tests
 
@@ -39,6 +41,14 @@ Install the `gui` extra to run desktop tests that use pywebview:
 ```sh
 python -m pip install -e '.[dev,gui]'
 python -m pytest -q tests/test_desktop.py
+```
+
+Network setup diagnostics and the bounded, cancellable peer probe have focused
+tests, including no-transmit local checks, stale routes, raw-socket denial, disk
+space, VPN endpoint overlap, mismatched keys/modes, and rejected unsafe starts:
+
+```sh
+python -m pytest -q tests/test_diagnostics.py tests/test_probe.py tests/test_desktop.py
 ```
 
 The Noise conformance test uses a published NNpsk0 known-answer vector. Session

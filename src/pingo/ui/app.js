@@ -20,6 +20,9 @@
     missed: 0,
     errorSeq: 0,
     localAddresses: [],
+    checks: null,
+    launching: false,
+    checkRequest: 0,
   };
   const labels = {
     idle: "Ready",
@@ -96,14 +99,15 @@
   }
   function renderControls() {
     const p = profile(),
-      running = Boolean(state.job.running);
+      running = Boolean(state.job.running),
+      busy = running || state.launching;
     document.querySelectorAll(".network-action").forEach((b) => {
-      b.disabled = !p || running;
+      b.disabled = !p || busy;
     });
-    $("send-file").disabled = !p || running || !state.file;
+    $("send-file").disabled = !p || busy || !state.file;
     const messageBytes = new TextEncoder().encode($("message").value).length;
     const oversized = messageBytes > 60000;
-    $("send-message").disabled = !p || running || !messageBytes || oversized;
+    $("send-message").disabled = !p || busy || !messageBytes || oversized;
     $("message").setCustomValidity(
       oversized ? "Keep your message under 60,000 UTF-8 bytes." : "",
     );
@@ -116,7 +120,7 @@
       "open-received",
       "run-check",
     ].forEach((id) => {
-      $(id).disabled = !p || (running && id !== "open-received");
+      $(id).disabled = !p || (busy && id !== "open-received");
     });
     [
       "new-connection",
@@ -125,9 +129,9 @@
       "connection-select",
       "elevate",
     ].forEach((id) => {
-      $(id).disabled = running;
+      $(id).disabled = busy;
     });
-    $("unlock").disabled = running || !state.ready;
+    $("unlock").disabled = busy || !state.ready;
     $("stop").disabled = !running || state.job.state === "stopping";
     document.body.dataset.configured = Boolean(p);
     $("welcome").hidden = Boolean(p) || state.view === "check";
@@ -141,6 +145,7 @@
     $("receive-folder").textContent =
       p?.receive_dir || "Pingo’s private receive folder";
     $("receive-folder").title = p?.receive_dir || "";
+    $("connection-health").hidden = !p || state.view === "check";
     $("receive-copy").textContent =
       running && state.job.action === "listen"
         ? "Listening for messages and files. Keep this window open."
@@ -198,7 +203,9 @@
               ? "VPN"
               : state.job.action === "unlock"
                 ? "Recovery"
-                : "Receive";
+                : state.job.action === "probe"
+                  ? "Peer test"
+                  : "Receive";
       const interrupted =
         prog &&
         prog.phase !== "verified" &&
@@ -246,15 +253,72 @@
         $("connection-select").add(new Option(p.name, p.id));
       $("connection-select").value = selected || "";
       loadVpn();
-      $("checks").replaceChildren(
-        Object.assign(document.createElement("p"), {
-          className: "empty",
-          textContent: "Run the setup check for this connection.",
-        }),
-      );
+      state.checks = null;
+      state.checkRequest++;
+      $("peer-test-result").textContent =
+        "Not tested. This checks direct mode, not a VPN responder or Internet exit.";
+      void refreshChecks();
+    }
+  }
+  function renderChecks() {
+    const fragment = document.createDocumentFragment();
+    for (const c of state.checks || []) {
+      const row = document.createElement("div"),
+        badge = document.createElement("span"),
+        info = document.createElement("div"),
+        title = document.createElement("strong"),
+        detail = document.createElement("p");
+      row.className = "check-row";
+      badge.className = "check-badge";
+      badge.dataset.status = c.status;
+      badge.textContent = { manual: "Check", warn: "Warning", fail: "Failed", pass: "Passed" }[c.status] || c.status;
+      title.textContent = c.name;
+      detail.textContent = c.detail;
+      info.append(title, detail);
+      row.append(badge, info);
+      fragment.append(row);
+    }
+    $("checks").replaceChildren(fragment);
+    const failed = state.checks.filter((c) => c.status === "fail").length,
+      warnings = state.checks.filter((c) => c.status === "warn").length;
+    $("connection-health").dataset.status = failed ? "fail" : warnings ? "warn" : "manual";
+    $("health-title").textContent = failed
+      ? `${failed} setup check${failed === 1 ? " needs" : "s need"} attention`
+      : warnings
+        ? `${warnings} setup warning${warnings === 1 ? "" : "s"}`
+        : "Local checks complete · peer unverified";
+    $("health-detail").textContent =
+      "VPN-only results affect VPN. Review checks and test peer connection in Settings.";
+  }
+  async function refreshChecks() {
+    if (!profile()) return null;
+    const request = ++state.checkRequest;
+    state.checks = null;
+    $("connection-health").dataset.status = "manual";
+    $("health-title").textContent = state.job.running
+      ? "Stop the current activity to run local checks"
+      : "Checking this computer…";
+    $("health-detail").textContent = "Peer reachability has not been tested.";
+    $("checks").textContent = $("health-title").textContent;
+    if (state.job.running) return null;
+    try {
+      const checks = await api("check_setup", state.selected);
+      if (request !== state.checkRequest) return null;
+      state.checks = checks;
+      renderChecks();
+      return checks;
+    } catch (error) {
+      if (request === state.checkRequest) {
+        $("health-title").textContent = "Local checks could not finish";
+        $("health-detail").textContent = error.message;
+        $("checks").textContent = error.message;
+      }
+      return null;
     }
   }
   function activityText(e) {
+    if (e.event === "peer_verified")
+      return `Peer verified: authenticated ICMP handshake with ${e.peer}`;
     if (e.event === "message") return `Received message: ${e.text}`;
     if (e.event === "sent_message")
       return `Message received by peer: ${e.text}`;
@@ -269,6 +333,10 @@
   function addEvents(events) {
     for (const e of events) {
       state.seq = Math.max(state.seq, e.seq);
+      if (e.event === "peer_verified" && e.peer === profile()?.peer)
+        $("peer-test-result").textContent =
+          `Verified ${e.peer} at ${time(e.at)}. Authenticated ICMP worked in both directions. ` +
+          "This does not verify larger transfers, VPN routing or an Internet exit.";
       if (e.event === "traffic") {
         state.packets.push(e);
         if (state.packets.length > 120) state.packets.shift();
@@ -379,8 +447,8 @@
     pollBusy = true;
     try {
       const s = await api("snapshot", state.seq);
-      updateProfiles(s.profiles, s.selected);
       state.job = s.job;
+      updateProfiles(s.profiles, s.selected);
       state.platform = s.platform;
       state.localAddresses = s.local_addresses || [];
       $("version").textContent = `Pingo ${s.version}`;
@@ -411,6 +479,10 @@
           shownError = key;
         }
       }
+      if (s.job.action === "probe" && ["failed", "stopped"].includes(s.job.state))
+        $("peer-test-result").textContent = s.job.state === "failed"
+          ? "Peer test failed. Start Receive on the peer and review the activity log and network guidance."
+          : "Peer test stopped; reachability was not verified.";
       renderControls();
     } catch (error) {
       toast("Desktop connection interrupted.", error.message);
@@ -566,12 +638,40 @@
     $("vpn-dns").disabled = $("vpn-no-dns").checked;
   }
   async function start(kind, payload) {
-    await api("start", state.selected, kind, payload);
-    state.job = { running: true, state: "starting", action: kind };
-    shownError = "";
-    $("toast").hidden = true;
+    if (state.launching || state.job.running)
+      throw { message: "Stop the current activity before starting another." };
+    state.launching = true;
     renderControls();
-    await poll();
+    try {
+      if (kind !== "unlock") {
+        const checks = await refreshChecks();
+        if (!checks)
+          throw { message: "Local checks could not finish. Run setup check in Settings." };
+        const failures = checks.filter((c) =>
+          c.status === "fail" &&
+          (kind === "vpn" || !c.name.includes("(VPN only)")) &&
+          (kind === "listen" || !c.name.startsWith("Receive")),
+        );
+        if (failures.length) {
+          showView("check");
+          throw {
+            message: "Fix the failed setup checks before starting.",
+            hint: failures[0].detail,
+          };
+        }
+      }
+      if (kind === "probe")
+        $("peer-test-result").textContent = "Testing the authenticated ICMP handshake…";
+      await api("start", state.selected, kind, payload);
+      state.job = { running: true, state: "starting", action: kind };
+      shownError = "";
+      $("toast").hidden = true;
+      renderControls();
+      await poll();
+    } finally {
+      state.launching = false;
+      renderControls();
+    }
   }
   function bind() {
     document.addEventListener("keydown", (event) => {
@@ -762,28 +862,9 @@
         await start("vpn");
       });
     };
-    $("run-check").onclick = () =>
-      action($("run-check"), async () => {
-        const checks = await api("check_setup", state.selected),
-          fragment = document.createDocumentFragment();
-        for (const c of checks) {
-          const row = document.createElement("div"),
-            badge = document.createElement("span"),
-            info = document.createElement("div"),
-            title = document.createElement("strong"),
-            detail = document.createElement("p");
-          row.className = "check-row";
-          badge.className = "check-badge";
-          badge.dataset.status = c.status;
-          badge.textContent = c.status === "manual" ? "Check" : c.status;
-          title.textContent = c.name;
-          detail.textContent = c.detail;
-          info.append(title, detail);
-          row.append(badge, info);
-          fragment.append(row);
-        }
-        $("checks").replaceChildren(fragment);
-      });
+    $("run-check").onclick = () => action($("run-check"), refreshChecks);
+    $("review-checks").onclick = () => showView("check");
+    $("test-peer").onclick = () => action($("test-peer"), () => start("probe"));
     $("unlock").onclick = () =>
       action($("unlock"), async () => {
         if (

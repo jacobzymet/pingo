@@ -22,6 +22,7 @@ from .helpers import KEY, carriers, connected
 def desktop(tmp_path, monkeypatch):
     # ACL commands are separately verified with the native desktop smoke test.
     monkeypatch.setattr("pingo.desktop.private_directory", lambda p: p.mkdir(exist_ok=True))
+    monkeypatch.setattr("pingo.desktop.local_network_checks", lambda *_: [])
     return Desktop(tmp_path / "desktop")
 
 
@@ -154,6 +155,32 @@ def test_non_admin_action_fails_before_starting_worker(desktop, monkeypatch):
     monkeypatch.setattr(desktop, "_worker_command", lambda: pytest.fail("must not spawn"))
     result = Api(desktop).start(p["id"], "listen")
     assert not result["ok"] and "Administrator" in result["hint"]
+
+
+@pytest.mark.parametrize("action", ["message", "listen", "file", "vpn", "probe"])
+def test_same_endpoint_is_rejected_before_worker_start(desktop, monkeypatch, action):
+    profile = connection(desktop)
+    profile = desktop.save_profile({**profile, "peer": profile["bind"]})
+    monkeypatch.setattr("pingo.desktop.elevated", lambda: True)
+    monkeypatch.setattr(desktop, "_worker_command", lambda: pytest.fail("must not spawn"))
+    response = Api(desktop).start(profile["id"], action)
+    assert not response["ok"] and "same IPv4" in response["error"]
+
+
+def test_vpn_overlap_rejected_before_adapter_or_worker_start(desktop, monkeypatch):
+    profile = connection(desktop)
+    profile = desktop.save_profile({**profile, "address": "192.0.2.9/24"})
+    monkeypatch.setattr("pingo.desktop.elevated", lambda: True)
+    monkeypatch.setattr(desktop, "_worker_command", lambda: pytest.fail("must not spawn"))
+    response = Api(desktop).start(profile["id"], "vpn")
+    assert not response["ok"] and "tunnel subnet" in response["error"]
+
+
+def test_setup_checks_cannot_run_during_an_activity(desktop):
+    profile = connection(desktop)
+    desktop.process = object()
+    response = Api(desktop).check_setup(profile["id"])
+    assert not response["ok"] and "Stop the current activity" in response["error"]
 
 
 def test_pythonw_gui_uses_console_interpreter_for_worker(desktop, monkeypatch):

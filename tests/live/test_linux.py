@@ -160,6 +160,25 @@ def test_live_raw_icmp_message_file_and_immediate_traffic(lab):
     assert any(event["direction"] == "rx" and event.get("wire_hex") for event in events)
 
 
+@pytest.mark.parametrize("wrong_key", [False, True])
+def test_live_peer_probe_and_local_checks(lab, wrong_key):
+    listener = lab.start("b", "listen", "--traffic", "off")
+    wait_for(lambda: "Listening" in listener.err_path.read_text(), [listener])
+    script = (
+        "import json; from pingo.diagnostics import local_network_checks; "
+        "print(json.dumps(local_network_checks('169.254.210.2', '169.254.210.1')))"
+    )
+    checks = json.loads(lab.exec("a", [sys.executable, "-c", script]).stdout)
+    assert all(c["status"] == "pass" for c in checks)
+    if wrong_key:
+        # The listener loaded the original key; the probe must not authenticate.
+        (lab.root / "peer.key").write_bytes(os.urandom(32))
+    probe = run(lab.cli("a", "probe", "--traffic", "off"), check=False)
+    assert probe.returncode == (1 if wrong_key else 0)
+    assert ("Peer verified:" in probe.stdout) is not wrong_key
+    assert listener.out_path.read_text() == ""
+
+
 def test_live_file_resumes_after_receiver_process_restart(lab):
     listener = lab.start("b", "listen", "--traffic", "off")
     wait_for(lambda: "Listening" in listener.err_path.read_text(), [listener])

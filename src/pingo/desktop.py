@@ -19,6 +19,7 @@ from pathlib import Path
 
 from . import __version__
 from .config import Config, generate_key
+from .diagnostics import address_checks, local_network_checks, storage_checks, vpn_checks
 from .permissions import desktop_owner, private_directory, private_file
 
 PROFILE_FIELDS = {
@@ -95,6 +96,17 @@ def config_text(profile):
 
 def error_hint(text):
     value = text.lower()
+    if "setup check failed" in value:
+        return "Open Settings for the full check results, correct the connection, then try again."
+    if any(item in value for item in (
+        "10049", "cannot assign requested address", "not valid in its context",
+    )):
+        return (
+            "This computer's saved IPv4 may have changed. Select an address assigned to an active "
+            "adapter, or use 0.0.0.0, then update the other computer's peer address too."
+        )
+    if any(item in value for item in ("network is unreachable", "no route", "10051", "10065")):
+        return "Check the active adapter, peer IPv4 and routes. Another VPN may change the route."
     if any(item in value for item in ("10013", "permission", "access is denied", "administrator")):
         return "Windows: reopen as Administrator. macOS/Linux: launch Pingo with sudo/root."
     if any(item in value for item in ("authenticate", "confirm session", "not acknowledged")):
@@ -102,7 +114,8 @@ def error_hint(text):
             "Ask the other person to start Receive (or the VPN responder). Check both IPv4 "
             "addresses, the same shared key, and inbound ICMP echo requests in both firewalls. "
             "Both computers need Pingo 0.3 or later. "
-            "A successful ping alone does not verify this. "
+            "NAT, guest Wi-Fi isolation, another VPN, or ICMP filtering/rate limits can block it. "
+            "A successful ping alone does not verify this; use Settings → Test peer connection. "
             "Check the receiver before resending a message."
         )
     if "key" in value:
@@ -347,6 +360,7 @@ class Desktop:
             return profile
 
     def check(self, identifier):
+        self._idle()
         profile = self._profile(identifier)
         results = []
 
@@ -356,13 +370,19 @@ class Desktop:
         try:
             config = self._config(profile)
             config.key()
-            item("Connection and shared key", "pass", "Settings are valid; key contains 32 bytes.")
+            item(
+                "Connection and shared key", "pass",
+                "Settings are valid; key contains 32 bytes. The peer's key is unverified locally.",
+            )
+            results.extend(address_checks(config.peer, config.bind))
+            results.extend(local_network_checks(config.peer, config.bind))
+            results.extend(storage_checks(config))
         except (OSError, ValueError) as exc:
             item("Connection and shared key", "fail", str(exc))
         item(
             "Network permissions",
             "pass" if elevated() else "fail",
-            "Ready to use raw ICMP."
+            "Running as Administrator/root; the ICMP socket check verifies actual carrier access."
             if elevated()
             else "Windows: reopen as Administrator. macOS/Linux: launch with sudo/root.",
         )
@@ -371,19 +391,16 @@ class Desktop:
             "pass" if sys.platform in ("win32", "linux", "darwin") else "fail",
             "Windows, macOS and Linux are supported.",
         )
-        directory = Path(profile["receive_dir"])
-        ancestor = directory
-        while not ancestor.exists() and ancestor != ancestor.parent:
-            ancestor = ancestor.parent
-        writable = ancestor.is_dir() and os.access(ancestor, os.W_OK)
-        item("Receive folder", "pass" if writable else "fail", str(directory))
         item(
             "Peer and firewall",
             "manual",
             f"Other computer: {profile['peer']}. It must be receiving in the same mode and use "
             "the same key. Allow ICMP echo requests (type 8) from each peer. This check does "
-            "not contact the peer or prove that the network path works.",
+            "not contact the peer or prove that the network path works. Both peers send requests; "
+            "allowing only echo replies is insufficient. Scope firewall rules to the peer IPv4 "
+            "and the active network profile; do not turn the firewall off.",
         )
+        results.extend(vpn_checks(profile))
         if sys.platform == "win32":
             exists = bool(profile["wintun_dll"]) and Path(profile["wintun_dll"]).is_file()
             item(
@@ -422,7 +439,7 @@ class Desktop:
         payload = payload or {}
         with self.lock:
             self._idle()
-            if action not in ("listen", "message", "file", "vpn", "unlock"):
+            if action not in ("listen", "message", "file", "vpn", "unlock", "probe"):
                 raise ValueError("unsupported action")
             if not elevated():
                 raise PermissionError("Network actions require Administrator/root permissions.")
@@ -438,6 +455,12 @@ class Desktop:
                 profile = self._profile(identifier)
                 config = self._config(profile)
                 config.key()
+                checks = address_checks(config.peer, config.bind)
+                if action == "vpn":
+                    checks.extend(vpn_checks(profile))
+                failures = [c["detail"] for c in checks if c["status"] == "fail"]
+                if failures:
+                    raise ValueError("Setup check failed: " + " ".join(failures))
                 job_config = self.root / ("job-" + uuid.uuid4().hex + ".toml")
                 argv = [
                     action,
@@ -462,7 +485,7 @@ class Desktop:
                     argv += ["--", str(path.resolve())]
                 elif action == "listen":
                     argv += ["--resume-retention", str(profile["resume_retention"])]
-                else:
+                elif action == "vpn":
                     argv += ["--address", profile["address"], "--interface", profile["interface"]]
                     if profile["vpn_listen"]:
                         if profile["default_route"] or profile["kill_switch"]:
@@ -697,6 +720,11 @@ class Api:
                 "then peer.toml.\n"
                 "Allow inbound ICMP echo requests from the other endpoint on BOTH computers.\n"
                 "Start Receive on one computer, then send from the other.\n"
+                "Run Settings' setup check on both computers. Test peer connection verifies "
+                "a direct-mode handshake while the other computer is Receiving.\n"
+                "Private IPv4 addresses need a shared LAN or routed private network. Pingo "
+                "has no NAT traversal; a router's public IPv4 is not your computer's address.\n"
+                "Use matching Pingo versions and one instance per endpoint/key.\n"
                 "Keep the key private; do not upload it to public repositories "
                 "or paste it into chat.\n"
             ),

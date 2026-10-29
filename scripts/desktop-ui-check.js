@@ -6,6 +6,14 @@ async (page) => {
       seq = 0;
     let job = { state: "idle", running: false, action: null };
     const events = [];
+    const defaultChecks = [
+      { name: "Connection and shared key", status: "pass", detail: "Settings are valid." },
+      { name: "Endpoint addresses", status: "warn", detail: "Replace example-only IPv4s." },
+      { name: "Peer and firewall", status: "manual", detail: "Check both computers." },
+    ];
+    let checks = defaultChecks;
+    window.fixtureChecks = (value) => { checks = value || defaultChecks; };
+    window.fixtureStarts = [];
     const emit = (event) =>
       events.push({ ...event, seq: ++seq, at: Date.now() / 1000 });
     const ok = (data) => ({ ok: true, data });
@@ -59,12 +67,15 @@ async (page) => {
           return ok(p);
         },
         start: async (_id, action, payload) => {
+          window.fixtureStarts.push(action);
           if (action === "listen")
             job = { state: "listening", action, running: true };
           else {
             job = { state: "completed", action, running: false };
             if (action === "message")
               emit({ event: "sent_message", text: payload.text });
+            if (action === "probe")
+              emit({ event: "peer_verified", peer: profiles[0].peer });
             if (action === "file") {
               job.progress = {
                 phase: "verified",
@@ -92,19 +103,7 @@ async (page) => {
           job = { state: "stopped", running: false };
           return ok({ stopping: false });
         },
-        check_setup: async () =>
-          ok([
-            {
-              name: "Connection and shared key",
-              status: "pass",
-              detail: "Settings are valid.",
-            },
-            {
-              name: "Peer and firewall",
-              status: "manual",
-              detail: "Check both computers.",
-            },
-          ]),
+        check_setup: async () => ok(checks),
       },
     };
   });
@@ -140,6 +139,7 @@ async (page) => {
     .getByRole("button", { name: "Save connection", exact: true })
     .click();
   await page.locator("#connection-dialog").waitFor({ state: "hidden" });
+  await page.locator("#health-title").filter({ hasText: "1 setup warning" }).waitFor();
   if (await page.locator("#trace").isVisible())
     throw Error("Packet trace should start collapsed");
   if (
@@ -228,6 +228,39 @@ async (page) => {
     .getByRole("button", { name: "Run setup check", exact: true })
     .click();
   await page.locator(".check-row").first().waitFor();
+  await page.getByRole("button", { name: "Test peer connection", exact: true }).click();
+  await page.locator("#peer-test-result").filter({ hasText: "Authenticated ICMP worked" }).waitFor();
+  if (!(await page.locator("#peer-test-result").textContent()).includes("does not verify"))
+    throw Error("Peer verification overstates what was tested");
+  const startsBeforeFailure = await page.evaluate(() => window.fixtureStarts.length);
+  await page.evaluate(() => window.fixtureChecks([
+    { name: "ICMP socket and local address", status: "fail", detail: "Run as Administrator/root." },
+  ]));
+  await page.getByRole("button", { name: "Send & receive", exact: true }).click();
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.locator("#view-check").waitFor({ state: "visible" });
+  await page.locator("#toast-title").filter({ hasText: "Fix the failed setup checks" }).waitFor();
+  if ((await page.evaluate(() => window.fixtureStarts.length)) !== startsBeforeFailure)
+    throw Error("Failed preflight still started networking");
+  await page.evaluate(() => window.fixtureChecks([
+    { name: "VPN endpoint overlap (VPN only)", status: "fail", detail: "Change tunnel subnet." },
+  ]));
+  await page.getByRole("button", { name: "Send & receive", exact: true }).click();
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Completed" }).waitFor();
+  if ((await page.evaluate(() => window.fixtureStarts.length)) !== startsBeforeFailure + 1)
+    throw Error("VPN-only failure incorrectly blocked a direct message");
+  await page.evaluate(() => window.fixtureChecks(null));
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Run setup check", exact: true }).click();
+  await page.locator(".network-guide summary").click();
+  for (const [width, height] of [[1180, 850], [390, 844]]) {
+    await page.setViewportSize({ width, height });
+    if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth))
+      throw Error(`Setup guidance overflows at ${width}`);
+    await page.screenshot({ path: `output/playwright/network-checks-${width}.png`, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1180, height: 850 });
   await page.getByRole("button", { name: "VPN tunnel", exact: true }).click();
   await page.locator("#vpn-role").selectOption("responder");
   if ((await page.locator("#vpn-address").inputValue()) !== "10.77.0.2/30")
@@ -339,5 +372,5 @@ async (page) => {
   )
     throw Error("New connection shortcut opened the wrong dialog");
   await page.keyboard.press("Escape");
-  return "Passed: guided setup, UTF-8 limits, keyboard send and tabs, draft preservation, safe message rendering, file progress, receive/stop, concurrency, diagnostics, VPN defaults, frozen trace filtering, hex, collapse, keyboard dialog, 3 viewport sizes.";
-};
+  return "Passed: guided setup, UTF-8 limits, keyboard send and tabs, draft preservation, safe message rendering, file progress, receive/stop, concurrency, automatic diagnostics, peer verification, failed-preflight blocking, VPN-only check scope, VPN defaults, frozen trace filtering, hex, collapse, keyboard dialog, 3 viewport sizes.";
+}

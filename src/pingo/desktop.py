@@ -17,6 +17,7 @@ from collections import deque
 from pathlib import Path
 
 from . import __version__
+from .app_log import AppLog
 from .config import Config, generate_key
 from .diagnostics import address_checks, local_network_checks, storage_checks, vpn_checks
 from .interfaces import local_ipv4
@@ -142,6 +143,9 @@ def bridge_action(function):
             TypeError,
             subprocess.SubprocessError,
         ) as exc:
+            args[0]._desktop.app_log.write({
+                "event": "error", "text": str(exc), "action": function.__name__,
+            })
             return {"ok": False, "error": str(exc), "hint": error_hint(str(exc))}
 
     return wrapped
@@ -185,6 +189,10 @@ class Desktop:
         self.metrics = {}
         self.recovery_table = ""
         self.monitor = None
+        self.app_log = AppLog(self.root / "logs")
+        self.app_log.write({
+            "event": "app_started", "version": __version__, "platform": sys.platform,
+        })
         self.interfaces = []
         self.local_addresses = []
         self.interfaces_error = ""
@@ -262,6 +270,7 @@ class Desktop:
             self.sequence += 1
             event = {**event, "seq": self.sequence, "at": time.time()}
             self.events.append(event)
+            self.app_log.write(event)
             kind = event.get("event")
             if kind == "state":
                 self.job["state"] = event["state"]
@@ -787,6 +796,27 @@ class Api:
         with self._desktop.lock:
             text = "".join(json.dumps(item) + "\n" for item in self._desktop.events)
         atomic_write(Path(result[0]), text)
+        return str(result[0])
+
+    @bridge_action
+    def read_logs(self):
+        return self._desktop.app_log.read()
+
+    @bridge_action
+    def export_logs(self):
+        import webview
+
+        result = self._desktop.window.create_file_dialog(
+            webview.FileDialog.SAVE,
+            save_filename="pingo-app-log.jsonl",
+            file_types=("JSON lines (*.jsonl)",),
+        )
+        if not result:
+            return None
+        data = self._desktop.app_log.read(limit=10000)
+        if data["error"]:
+            raise OSError(data["error"])
+        atomic_write(Path(result[0]), "".join(json.dumps(r) + "\n" for r in data["records"]))
         return str(result[0])
 
     @bridge_action

@@ -37,6 +37,14 @@ The interface follows your system's light/dark preference. Send, File and Receiv
 share one focused workspace; activity appears below it, with packet details and
 setup diagnostics collapsed until needed.
 
+**App logs** in Activity or Settings shows persistent diagnostic history, with error
+and warning filters and an export button. The view refreshes while open and shows the
+latest 300 entries across restarts. Logs live in the app's private `logs` directory:
+one 1 MiB JSON-lines file plus three rotated backups. Exports include up to 10,000
+retained entries. Messages, file names, keys, progress events and packet payloads are
+excluded; diagnostic text can still contain local paths and network addresses.
+Review exports before sharing. Packet hex remains in the separate in-memory trace.
+
 **This computer** shows a local IPv4 and the total address count. Expand it to see
 every assigned IPv4 on Ethernet, Wi-Fi, VPN, virtual, and loopback adapters, including
 multiple addresses per adapter. Adapter names and status come from the OS. Down and

@@ -183,6 +183,15 @@ def test_setup_checks_cannot_run_during_an_activity(desktop):
     assert not response["ok"] and "Stop the current activity" in response["error"]
 
 
+def test_desktop_logs_persist_diagnostics_without_message_contents(desktop):
+    desktop._event({"event": "log", "level": "warning", "text": "Peer is unavailable"})
+    desktop._event({"event": "message", "text": "do not save this"})
+    restored = Desktop(desktop.root)
+    result = Api(restored).read_logs()["data"]
+    assert any(r.get("text") == "Peer is unavailable" for r in result["records"])
+    assert "do not save this" not in json.dumps(result)
+
+
 def test_address_refresh_updates_snapshot_and_retains_old_rows_on_error(desktop, monkeypatch):
     rows = [{"name": "VPN", "address": "10.77.0.1", "loopback": False, "up": True}]
     monkeypatch.setattr("pingo.desktop.local_ipv4", lambda: rows)

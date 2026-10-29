@@ -1607,3 +1607,13 @@ dialog form { padding: 28px; }
   .card-footer { flex-wrap: wrap; gap: 12px; }
   #message { font-size: 16px; }
 }
+.log-tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.log-tools select { min-width: 130px; }
+#log-location { overflow-wrap: anywhere; font-size: 12px; }
+.log-records { list-style: none; margin: 12px 0; padding: 0 16px; max-height: 360px; overflow: auto; background: var(--soft); border-radius: 10px; }
+.log-records li { padding: 12px 0; border-bottom: 1px solid var(--line); display: grid; gap: 4px; overflow-wrap: anywhere; font: 12px/1.6 var(--mono); }
+.log-records time { font: 11px var(--body); color: var(--muted); }
+.log-records li[data-level="error"] { color: var(--danger); }
+.log-records li[data-level="warning"] { color: var(--warning); }
+.app-logs > summary { cursor: pointer; font-size: 14px; }
+#show-logs { margin-left: auto; margin-right: 12px; }

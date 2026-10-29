@@ -24,6 +24,8 @@
     launching: false,
     checkRequest: 0,
     interfaceSignature: "",
+    logs: [],
+    logPollAt: 0,
   };
   const labels = {
     idle: "Ready",
@@ -492,6 +494,8 @@
           ? "Peer test failed. Start Receive on the peer and review the activity log and network guidance."
           : "Peer test stopped; reachability was not verified.";
       renderControls();
+      if (state.view === "check" && $("app-logs").open && Date.now() - state.logPollAt > 2000)
+        void refreshLogs();
     } catch (error) {
       toast("Desktop connection interrupted.", error.message);
     } finally {
@@ -728,6 +732,18 @@
     }
   }
   function bind() {
+    $("show-logs").onclick = () => {
+      showView("check");
+      $("app-logs").open = true;
+      $("app-logs").scrollIntoView({ block: "start" });
+    };
+    $("app-logs").ontoggle = () => { if ($("app-logs").open) void refreshLogs(); };
+    $("log-filter").onchange = renderLogs;
+    $("refresh-logs").onclick = () => action($("refresh-logs"), refreshLogs);
+    $("export-logs").onclick = () => action($("export-logs"), async () => {
+      const path = await api("export_logs");
+      if (path) toast("App logs exported.", path, true);
+    });
     $("refresh-addresses").onclick = () => action($("refresh-addresses"), async () => {
       const result = await api("refresh_addresses");
       renderAddresses(result.interfaces, result.error);
@@ -955,6 +971,37 @@
         const path = await api("export_trace");
         if (path) toast("Recent trace exported.", path, true);
       });
+  }
+  function renderLogs() {
+    const filter = $("log-filter").value;
+    const rows = state.logs.filter((entry) => filter === "all" || entry.level === filter);
+    const fragment = document.createDocumentFragment();
+    for (const entry of rows) {
+      const row = document.createElement("li"), stamp = document.createElement("time"),
+        text = document.createElement("span");
+      stamp.textContent = new Date(entry.at * 1000).toLocaleString();
+      text.textContent = `[${entry.level}] ${entry.text || entry.event}${entry.state ? ` · ${entry.state}` : ""}${entry.action ? ` · ${entry.action}` : ""}${entry.peer ? ` · ${entry.peer}` : ""}${entry.code !== undefined ? ` · code ${entry.code}` : ""}`;
+      row.dataset.level = entry.level;
+      row.append(stamp, text);
+      fragment.append(row);
+    }
+    if (!rows.length) {
+      const empty = document.createElement("li");
+      empty.textContent = "No entries match this filter.";
+      fragment.append(empty);
+    }
+    $("log-records").replaceChildren(fragment);
+  }
+  async function refreshLogs() {
+    state.logPollAt = Date.now();
+    try {
+      const data = await api("read_logs");
+      state.logs = data.records;
+      $("log-location").textContent = data.error ? `Logging problem: ${data.error}` : data.path;
+      renderLogs();
+    } catch (error) {
+      $("log-location").textContent = error.message;
+    }
   }
   async function ready() {
     if (state.ready) return;

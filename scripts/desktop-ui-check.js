@@ -46,6 +46,12 @@ async (page) => {
           }),
         create_key: async () => ok("C:\\Pingo-test\\peer.key"),
         refresh_addresses: async () => ok({ interfaces, error: "" }),
+        read_logs: async () => ok({ path: "C:\\Pingo-test\\logs\\app.jsonl", error: "", records: [
+          { at: Date.now()/1000, event: "app_started", level: "info" },
+          { at: Date.now()/1000, event: "log", level: "warning", text: "Peer unavailable" },
+          { at: Date.now()/1000, event: "error", level: "error", text: "<script>window.logInjected=true</script>" },
+        ] }),
+        export_logs: async () => ok("C:\\Pingo-test\\export.jsonl"),
         choose: async (kind) =>
           ok(kind === "file" ? "C:\\Pingo-test\\sample.zip" : null),
         save_connection: async (data) => {
@@ -246,6 +252,14 @@ async (page) => {
     .getByRole("button", { name: "Run setup check", exact: true })
     .click();
   await page.locator(".check-row").first().waitFor();
+  await page.locator("#app-logs summary").click();
+  await page.locator("#log-records li").filter({ hasText: "Peer unavailable" }).waitFor();
+  if (await page.evaluate(() => Boolean(window.logInjected))) throw Error("Log HTML executed");
+  await page.getByLabel("Filter app logs").selectOption("warning");
+  if (await page.locator("#log-records li").count() !== 1) throw Error("Log filter failed");
+  await page.getByRole("button", { name: "Export logs…", exact: true }).click();
+  await page.locator("#toast-title").filter({ hasText: "App logs exported" }).waitFor();
+  await page.locator("#app-logs summary").click();
   await page.getByRole("button", { name: "Test peer connection", exact: true }).click();
   await page.locator("#peer-test-result").filter({ hasText: "Authenticated ICMP worked" }).waitFor();
   if (!(await page.locator("#peer-test-result").textContent()).includes("does not verify"))

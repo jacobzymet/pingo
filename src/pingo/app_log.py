@@ -43,7 +43,9 @@ class AppLog:
             "level": event.get("level", "error" if kind == "error" else "info"),
         }
         # Explicit fields only: no keys, application messages, filenames or packet hex.
-        for field in ("state", "action", "code", "peer", "size", "version", "platform"):
+        for field in (
+            "state", "action", "code", "peer", "size", "version", "platform", "reason",
+        ):
             if field in event:
                 record[field] = event[field]
         if kind in ("error", "log"):

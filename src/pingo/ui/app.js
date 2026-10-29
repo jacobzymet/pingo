@@ -37,7 +37,7 @@
     stopping: "Stopping safely",
     completed: "Completed",
     stopped: "Stopped",
-    failed: "Needs attention",
+    failed: "Failed",
   };
   const profile = () => state.profiles.find((p) => p.id === state.selected);
   const bytes = (value) => {
@@ -264,6 +264,7 @@
       state.checkRequest++;
       $("peer-test-result").textContent =
         "Not tested. This checks direct mode, not a VPN responder or Internet exit.";
+      $("peer-test-result").dataset.status = "manual";
       void refreshChecks();
     }
   }
@@ -276,6 +277,7 @@
         title = document.createElement("strong"),
         detail = document.createElement("p");
       row.className = "check-row";
+      row.dataset.status = c.status;
       badge.className = "check-badge";
       badge.dataset.status = c.status;
       badge.textContent = { manual: "Check", warn: "Warning", fail: "Failed", pass: "Passed" }[c.status] || c.status;
@@ -290,10 +292,13 @@
       warnings = state.checks.filter((c) => c.status === "warn").length;
     $("connection-health").dataset.status = failed ? "fail" : warnings ? "warn" : "manual";
     $("health-title").textContent = failed
-      ? `${failed} setup check${failed === 1 ? " needs" : "s need"} attention`
+      ? `${failed} setup check${failed === 1 ? "" : "s"} failed`
       : warnings
         ? `${warnings} setup warning${warnings === 1 ? "" : "s"}`
         : "Local checks complete · peer unverified";
+    $("setup-result-count").textContent = failed ? `· ${failed} failed` : "";
+    $("setup-result-count").dataset.status = failed ? "fail" : "manual";
+    if (failed) $("setup-results").open = true;
     $("health-detail").textContent =
       "VPN-only results affect VPN. Review checks and test peer connection in Settings.";
   }
@@ -316,7 +321,10 @@
       return checks;
     } catch (error) {
       if (request === state.checkRequest) {
-        $("health-title").textContent = "Local checks could not finish";
+        $("connection-health").dataset.status = "fail";
+        $("health-title").textContent = "Setup check failed to run";
+        $("setup-result-count").textContent = "· Check failed to run";
+        $("setup-result-count").dataset.status = "fail";
         $("health-detail").textContent = error.message;
         $("checks").textContent = error.message;
       }
@@ -333,6 +341,8 @@
     if (e.event === "received_file")
       return `Received and verified: ${e.name} (${bytes(e.size)})`;
     if (e.event === "log" || e.event === "error") return e.text;
+    if (e.event === "state" && e.state === "reconnecting")
+      return `Connection attempt failed${e.reason ? `: ${e.reason}` : ""}. Retrying${e.delay ? ` in ${e.delay}s` : ""}…`;
     if (e.event === "state")
       return `${labels[e.state] || e.state}${e.delay ? ` · retry ${e.attempt} in ${e.delay}s` : ""}`;
     return null;
@@ -340,6 +350,8 @@
   function addEvents(events) {
     for (const e of events) {
       state.seq = Math.max(state.seq, e.seq);
+      if (e.event === "peer_verified" && e.peer === profile()?.peer)
+        $("peer-test-result").dataset.status = "pass";
       if (e.event === "peer_verified" && e.peer === profile()?.peer)
         $("peer-test-result").textContent =
           `Verified ${e.peer} at ${time(e.at)}. Authenticated ICMP worked in both directions. ` +
@@ -371,7 +383,8 @@
       stamp.textContent = time(e.at);
       text.textContent = e.text;
       text.className = "activity-text";
-      row.dataset.level = e.level || "info";
+      row.dataset.level = e.level || (e.state === "failed" ? "error" :
+        e.state === "reconnecting" ? "warning" : "info");
       row.append(stamp, text);
       fragment.append(row);
     }
@@ -489,10 +502,12 @@
           shownError = key;
         }
       }
-      if (s.job.action === "probe" && ["failed", "stopped"].includes(s.job.state))
+      if (s.job.action === "probe" && ["failed", "stopped"].includes(s.job.state)) {
+        $("peer-test-result").dataset.status = s.job.state === "failed" ? "fail" : "manual";
         $("peer-test-result").textContent = s.job.state === "failed"
           ? "Peer test failed. Start Receive on the peer and review the activity log and network guidance."
           : "Peer test stopped; reachability was not verified.";
+      }
       renderControls();
       if (state.view === "check" && $("app-logs").open && Date.now() - state.logPollAt > 2000)
         void refreshLogs();
@@ -718,8 +733,10 @@
           };
         }
       }
-      if (kind === "probe")
+      if (kind === "probe") {
+        $("peer-test-result").dataset.status = "manual";
         $("peer-test-result").textContent = "Testing the authenticated ICMP handshake…";
+      }
       await api("start", state.selected, kind, payload);
       state.job = { running: true, state: "starting", action: kind };
       shownError = "";

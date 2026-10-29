@@ -192,6 +192,14 @@ def test_desktop_logs_persist_diagnostics_without_message_contents(desktop):
     assert "do not save this" not in json.dumps(result)
 
 
+def test_failed_and_reconnecting_states_have_distinct_log_severity(desktop):
+    desktop._event({"event": "state", "state": "reconnecting", "reason": "no reply"})
+    desktop._event({"event": "state", "state": "failed"})
+    records = Api(desktop).read_logs()["data"]["records"]
+    assert records[-2]["level"] == "warning" and records[-2]["reason"] == "no reply"
+    assert records[-1]["level"] == "error"
+
+
 def test_address_refresh_updates_snapshot_and_retains_old_rows_on_error(desktop, monkeypatch):
     rows = [{"name": "VPN", "address": "10.77.0.1", "loopback": False, "up": True}]
     monkeypatch.setattr("pingo.desktop.local_ipv4", lambda: rows)

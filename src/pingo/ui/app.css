@@ -1617,3 +1617,10 @@ dialog form { padding: 28px; }
 .log-records li[data-level="warning"] { color: var(--warning); }
 .app-logs > summary { cursor: pointer; font-size: 14px; }
 #show-logs { margin-left: auto; margin-right: 12px; }
+.check-row[data-status="fail"] { background: var(--error-bg); border-radius: 8px; padding: 14px 12px; margin: 4px 0; }
+.check-row[data-status="fail"] strong, #setup-result-count[data-status="fail"], #peer-test-result[data-status="fail"] { color: var(--danger); font-weight: 600; }
+#peer-test-result[data-status="pass"] { color: var(--green); }
+.activity li[data-level="error"] { color: var(--danger); background: var(--error-bg); padding-inline: 12px; border-radius: 8px; }
+.activity li[data-level="warning"] { color: var(--warning); }
+.status[data-state="failed"] { color: var(--danger); background: var(--error-bg); }
+.status[data-state="reconnecting"] { color: var(--warning); background: var(--warning-bg); }

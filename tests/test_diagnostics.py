@@ -94,6 +94,17 @@ def test_route_to_self_is_a_failure(monkeypatch):
     assert local_network_checks("10.0.0.2", "0.0.0.0")[0]["status"] == "fail"
 
 
+def test_vpn_source_overriding_peer_lan_route_warns(monkeypatch):
+    monkeypatch.setattr(diagnostics, "route_source", lambda *_: "10.182.37.57")
+    monkeypatch.setattr(diagnostics, "RawICMP", lambda *_: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(diagnostics, "local_ipv4", lambda: [{
+        "name": "Ethernet", "address": "10.203.9.186", "netmask": "255.255.192.0", "up": True,
+    }])
+    route = local_network_checks("10.203.50.165", "0.0.0.0")[0]
+    assert route["status"] == "warn"
+    assert "10.182.37.57" in route["detail"] and "10.203.9.186" in route["detail"]
+
+
 def test_storage_checks_low_space_without_leaving_test_files(tmp_path, monkeypatch):
     directory = tmp_path / "new" / "received"
     monkeypatch.setattr(diagnostics.shutil, "disk_usage", lambda *_: SimpleNamespace(free=1024))

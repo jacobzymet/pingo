@@ -272,6 +272,11 @@ async (page) => {
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await page.locator("#view-check").waitFor({ state: "visible" });
   await page.locator("#toast-title").filter({ hasText: "Fix the failed setup checks" }).waitFor();
+  await page.locator('#checks .check-row[data-status="fail"]').waitFor();
+  if (!(await page.locator("#health-title").textContent()).includes("failed"))
+    throw Error("Failed checks were not explicitly labeled failed");
+  if (!(await page.locator("#setup-result-count").textContent()).includes("failed"))
+    throw Error("Collapsed summary did not expose failed checks");
   if ((await page.evaluate(() => window.fixtureStarts.length)) !== startsBeforeFailure)
     throw Error("Failed preflight still started networking");
   await page.evaluate(() => window.fixtureChecks([

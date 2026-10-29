@@ -269,6 +269,11 @@ class Desktop:
         with self.lock:
             self.sequence += 1
             event = {**event, "seq": self.sequence, "at": time.time()}
+            if event.get("event") == "state":
+                event["level"] = (
+                    "error" if event.get("state") == "failed" else
+                    "warning" if event.get("state") == "reconnecting" else "info"
+                )
             self.events.append(event)
             self.app_log.write(event)
             kind = event.get("event")

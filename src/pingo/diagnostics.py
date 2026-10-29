@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from .icmp import RawICMP
+from .interfaces import local_ipv4
 
 PRIVATE = tuple(ipaddress.IPv4Network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
 DOCUMENTATION = tuple(
@@ -99,13 +100,34 @@ def local_network_checks(peer, bind):
                 )
             )
         else:
+            alternatives = []
+            if bind == "0.0.0.0":
+                try:
+                    for adapter in local_ipv4():
+                        if adapter["up"] is False or not adapter["netmask"]:
+                            continue
+                        network = ipaddress.IPv4Network(
+                            f"{adapter['address']}/{adapter['netmask']}", strict=False
+                        )
+                        if ipaddress.IPv4Address(peer) in network and adapter["address"] != source:
+                            alternatives.append(f"{adapter['name']} ({adapter['address']})")
+                except (OSError, RuntimeError, ValueError):
+                    pass  # Adapter inventory is advisory; preserve the actual route result.
             checks.append(
                 result(
                     "Local route",
-                    "pass",
+                    "warn" if alternatives else "pass",
                     f"The OS selected source {source} for {peer}. "
                     "This does not prove ICMP delivery. If this is an unexpected adapter or "
-                    "another VPN, check its routes and policies.",
+                    "another VPN, check its routes and policies. "
+                    + (
+                        "A different adapter shares the peer's subnet: "
+                        + ", ".join(alternatives)
+                        + ". A VPN or preferred route may be overriding the LAN route. "
+                        "The other computer must expect the source IPv4 it actually receives. "
+                        "Review VPN routing before changing peer settings."
+                        if alternatives else ""
+                    ),
                 )
             )
     except OSError as exc:

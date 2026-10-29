@@ -39,8 +39,11 @@ class Connector:
                 if not recoverable(exc) or failure == self.reconnects:
                     raise
                 delay = min(0.5 * 2 ** min(failure, 5), 10)
-                self.on_event("state", state="reconnecting", delay=delay, attempt=failure + 1)
-                LOG.warning("Peer unavailable; reconnecting in %.1fs", delay)
+                self.on_event(
+                    "state", state="reconnecting", delay=delay, attempt=failure + 1,
+                    reason=str(exc),
+                )
+                LOG.warning("Connection attempt failed: %s; reconnecting in %.1fs", exc, delay)
                 if self.stop.wait(delay):
                     raise InterruptedError("connection cancelled") from None
 
